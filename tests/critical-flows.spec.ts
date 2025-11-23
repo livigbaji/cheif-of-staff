@@ -114,7 +114,7 @@ async function signInUser(page: Page) {
   await page.goto('/');
   
   // Click sign in button
-  await page.click('text=Sign in with Google');
+  await page.click('text=Connect Google');
   
   // Wait for authentication to complete
   await page.waitForURL('**/');
@@ -123,22 +123,35 @@ async function signInUser(page: Page) {
   await expect(page.locator('h1')).toContainText('Chief of Staff');
 }
 
+// Helper function for guest mode testing
+async function useGuestMode(page: Page) {
+  // Go to homepage
+  await page.goto('/');
+  
+  // Should be in guest mode by default (no authentication required)
+  await expect(page.locator('h1')).toContainText('Chief of Staff');
+  await expect(page.locator('text=Guest User')).toBeVisible();
+}
+
 test.describe('Authentication Flow', () => {
-  test('should show sign-in page when not authenticated', async ({ page }) => {
+  test('should show app interface in guest mode when not authenticated', async ({ page }) => {
     await page.goto('/');
     
-    // Should show sign-in page
+    // Should show the app interface with guest user
     await expect(page.locator('h1')).toContainText('Chief of Staff');
-    await expect(page.locator('text=AI-powered productivity assistant')).toBeVisible();
-    await expect(page.locator('text=Sign in with Google')).toBeVisible();
+    await expect(page.locator('text=Guest User')).toBeVisible();
+    await expect(page.locator('text=Connect Google')).toBeVisible();
+    
+    // Should show standup questions by default
+    await expect(page.locator('text=What did you do yesterday?')).toBeVisible();
   });
 
-  test('should authenticate user successfully', async ({ page }) => {
+  test('should authenticate user successfully and show enhanced features', async ({ page }) => {
     await mockGoogleAuth(page);
     await page.goto('/');
     
     // Click sign in
-    await page.click('text=Sign in with Google');
+    await page.click('text=Connect Google');
     
     // Should redirect to Gemini config since no API key is set initially
     await expect(page.locator('h2')).toContainText('Configure Gemini API');
@@ -148,7 +161,8 @@ test.describe('Authentication Flow', () => {
     await mockGoogleAuth(page);
     await page.goto('/');
     
-    // Sign in
+    // Sign in first
+    await page.click('text=Connect Google');
     await page.click('text=Sign in with Google');
     
     // Should be on Gemini config page
@@ -166,7 +180,7 @@ test.describe('Authentication Flow', () => {
 
 test.describe('Daily Standup Flow', () => {
   test.beforeEach(async ({ page }) => {
-    await signInUser(page);
+    await useGuestMode(page);
   });
 
   test('should display standup questions', async ({ page }) => {

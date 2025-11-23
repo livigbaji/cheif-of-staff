@@ -1,23 +1,47 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
-import { Mic, MicOff, Settings, Calendar, Users, Target, BarChart3, FileText } from 'lucide-react';
+import { Mic, MicOff, Settings, Users, Target, BarChart3, FileText } from 'lucide-react';
 
 interface StandupQuestion {
   id: string;
   question: string;
   answer: string;
   isAnalyzed: boolean;
-  analysis?: any;
+  analysis?: {
+    insights: string[];
+    suggestions: string[];
+    mood: string;
+    productivity_score: number;
+    isOnPoint?: boolean;
+    feedback?: string;
+    guidingQuestions?: string[];
+  };
+}
+
+interface ChecklistItem {
+  title: string;
+  description?: string;
+  priority?: number;
+  estimated_time?: string;
+  estimatedTimeMinutes?: number;
+  status?: string;
+  goalAlignment?: string[];
 }
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
+  
+  // App works without authentication, but Google login unlocks integrations
+  const hasGoogleIntegration = !!session?.user;
+  const currentUser = session?.user || { id: 'guest', name: 'Guest User', email: 'guest@localhost' };
+  
   const [currentView, setCurrentView] = useState('standup');
   const [geminiConfigured, setGeminiConfigured] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [isListening, setIsListening] = useState(false);
+  const [isGuestMode, setIsGuestMode] = useState(!hasGoogleIntegration);
   const [standupQuestions, setStandupQuestions] = useState<StandupQuestion[]>([
     { id: '1', question: 'What did you do yesterday?', answer: '', isAnalyzed: false },
     { id: '2', question: 'What were you not able to do yesterday?', answer: '', isAnalyzed: false },
@@ -28,25 +52,26 @@ export default function Dashboard() {
     { id: '7', question: 'What could stop you from doing it?', answer: '', isAnalyzed: false },
     { id: '8', question: 'What do you need to understand going into the day?', answer: '', isAnalyzed: false },
   ]);
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
-  const [checklist, setChecklist] = useState([]);
+  const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [mode, setMode] = useState<'cadence' | 'waterfall'>('cadence');
+
+  const checkGeminiConfiguration = useCallback(async () => {
+    try {
+      const response = await fetch('/api/gemini/config');
+      const data = await response.json();
+      setGeminiConfigured(data.hasApiKey);
+      setIsGuestMode(data.isGuest || !hasGoogleIntegration);
+    } catch (error) {
+      console.error('Error checking Gemini configuration:', error);
+      setIsGuestMode(!hasGoogleIntegration);
+    }
+  }, [hasGoogleIntegration]);
 
   useEffect(() => {
     if (session) {
       checkGeminiConfiguration();
     }
-  }, [session]);
-
-  const checkGeminiConfiguration = async () => {
-    try {
-      const response = await fetch('/api/gemini/config');
-      const data = await response.json();
-      setGeminiConfigured(data.hasApiKey);
-    } catch (error) {
-      console.error('Error checking Gemini configuration:', error);
-    }
-  };
+  }, [session, checkGeminiConfiguration]);
 
   const configureGemini = async () => {
     try {
@@ -83,7 +108,7 @@ export default function Dashboard() {
 
     setIsListening(true);
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let transcript = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         transcript += event.results[i][0].transcript;
@@ -115,24 +140,41 @@ export default function Dashboard() {
     const question = standupQuestions[questionIndex];
     if (!question.answer.trim()) return;
 
+    // For guest users or if no stored API key, require API key input
+    let requestApiKey = '';
+    if (isGuestMode || !geminiConfigured) {
+      const enteredApiKey = prompt('Please enter your Gemini API key:');
+      if (!enteredApiKey) {
+        alert('Gemini API key is required for analysis');
+        return;
+      }
+      requestApiKey = enteredApiKey;
+    }
+
     try {
       const response = await fetch('/api/standup/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           question: question.question,
-          answer: question.answer
+          answer: question.answer,
+          ...(requestApiKey && { apiKey: requestApiKey })
         })
       });
 
       const analysis = await response.json();
       
-      const newQuestions = [...standupQuestions];
-      newQuestions[questionIndex].analysis = analysis;
-      newQuestions[questionIndex].isAnalyzed = true;
-      setStandupQuestions(newQuestions);
+      if (response.ok) {
+        const newQuestions = [...standupQuestions];
+        newQuestions[questionIndex].analysis = analysis;
+        newQuestions[questionIndex].isAnalyzed = true;
+        setStandupQuestions(newQuestions);
+      } else {
+        alert(analysis.message || analysis.error || 'Failed to analyze response');
+      }
     } catch (error) {
       console.error('Error analyzing answer:', error);
+      alert('Failed to analyze response. Please check your connection and try again.');
     }
   };
 
@@ -176,30 +218,14 @@ export default function Dashboard() {
     return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
   }
 
-  if (!session) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="text-center">
-          <h1 className="text-4xl font-bold mb-8">Chief of Staff</h1>
-          <p className="text-gray-600 mb-8">AI-powered productivity assistant</p>
-          <button
-            onClick={() => signIn('google')}
-            className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700"
-          >
-            Sign in with Google
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (!geminiConfigured) {
+  // Always show main interface in guest mode for non-authenticated users
+  if (!geminiConfigured && !isGuestMode && hasGoogleIntegration) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
           <h2 className="text-2xl font-bold mb-4">Configure Gemini API</h2>
           <p className="text-gray-600 mb-4">
-            Please enter your Gemini API key to enable AI features.
+            Please enter your Gemini API key to enable AI features for your account.
           </p>
           <input
             type="password"
@@ -210,10 +236,19 @@ export default function Dashboard() {
           />
           <button
             onClick={configureGemini}
-            className="w-full bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700"
+            className="w-full bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 mb-3"
           >
-            Configure API
+            Save API Key
           </button>
+          <button
+            onClick={() => setIsGuestMode(true)}
+            className="w-full bg-gray-200 text-gray-700 p-3 rounded-lg hover:bg-gray-300"
+          >
+            Continue as Guest
+          </button>
+          <p className="text-xs text-gray-500 mt-2">
+            Guest mode: You&apos;ll need to enter your API key for each AI analysis.
+          </p>
         </div>
       </div>
     );
@@ -227,13 +262,22 @@ export default function Dashboard() {
           <div className="flex justify-between items-center h-16">
             <h1 className="text-xl font-semibold">Chief of Staff</h1>
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">{session.user?.name}</span>
-              <button
-                onClick={() => signOut()}
-                className="text-sm text-gray-600 hover:text-gray-900"
-              >
-                Sign out
-              </button>
+              <span className="text-sm text-gray-600">{currentUser.name}</span>
+              {hasGoogleIntegration ? (
+                <button
+                  onClick={() => signOut()}
+                  className="text-sm text-gray-600 hover:text-gray-900"
+                >
+                  Sign out
+                </button>
+              ) : (
+                <button
+                  onClick={() => signIn('google')}
+                  className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+                >
+                  Connect Google
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -243,6 +287,22 @@ export default function Dashboard() {
         {/* Sidebar */}
         <nav className="w-64 bg-white shadow-sm min-h-screen">
           <div className="p-4">
+            {/* Integration Status */}
+            <div className="mb-6 p-3 bg-gray-50 rounded-lg">
+              <h3 className="text-sm font-medium text-gray-900 mb-2">Integrations</h3>
+              <div className="space-y-1 text-xs">
+                <div className="flex items-center justify-between">
+                  <span>Google APIs</span>
+                  <span className={`px-2 py-1 rounded ${hasGoogleIntegration ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                    {hasGoogleIntegration ? 'Connected' : 'Available'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Slack</span>
+                  <span className="px-2 py-1 rounded bg-gray-100 text-gray-500">Available</span>
+                </div>
+              </div>
+            </div>
             <ul className="space-y-2">
               <li>
                 <button
@@ -421,26 +481,26 @@ export default function Dashboard() {
           {currentView === 'checklist' && (
             <div className="max-w-4xl mx-auto">
               <div className="bg-white rounded-lg shadow-sm p-6">
-                <h2 className="text-2xl font-bold mb-6">Today's Checklist</h2>
+                <h2 className="text-2xl font-bold mb-6">Today&apos;s Checklist</h2>
                 {checklist.length === 0 ? (
                   <p className="text-gray-600">Complete your standup to generate checklist items.</p>
                 ) : (
                   <div className="space-y-4">
-                    {checklist.map((item: any, index) => (
+                    {checklist.map((item: ChecklistItem, index) => (
                       <div key={index} className="p-4 border rounded-lg">
                         <div className="flex items-center justify-between mb-2">
                           <h3 className="font-medium">{item.title}</h3>
                           <span className={`px-2 py-1 rounded text-xs ${
-                            item.priority <= 2 ? 'bg-red-100 text-red-700' :
-                            item.priority <= 3 ? 'bg-yellow-100 text-yellow-700' :
+                            (item.priority || 5) <= 2 ? 'bg-red-100 text-red-700' :
+                            (item.priority || 5) <= 3 ? 'bg-yellow-100 text-yellow-700' :
                             'bg-green-100 text-green-700'
                           }`}>
-                            Priority {item.priority}
+                            Priority {item.priority || 'N/A'}
                           </span>
                         </div>
                         <p className="text-sm text-gray-600 mb-2">{item.description}</p>
                         <div className="flex items-center justify-between text-xs text-gray-500">
-                          <span>Est. {item.estimatedTimeMinutes} min</span>
+                          <span>Est. {item.estimatedTimeMinutes || 'N/A'} min</span>
                           <span>Goal Aligned: {item.goalAlignment?.join(', ') || 'None'}</span>
                         </div>
                       </div>

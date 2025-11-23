@@ -4,7 +4,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import { geminiService } from '@/lib/gemini';
 
 // Helper to get current user (authenticated or guest)
-async function getCurrentUser(request: NextRequest) {
+async function getCurrentUser() {
   const session = await getServerSession(authOptions);
   
   if (session?.user?.id) {

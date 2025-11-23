@@ -264,18 +264,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS task_tracking (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
-    task_title TEXT NOT NULL,
-    task_description TEXT,
+    title TEXT NOT NULL,
+    description TEXT,
     estimated_minutes INTEGER,
     actual_minutes INTEGER,
-    priority_level INTEGER, -- 1-5
-    status TEXT DEFAULT 'pending', -- pending, in_progress, completed, blocked
-    started_at DATETIME,
+    priority TEXT DEFAULT 'medium', -- low, medium, high
+    status TEXT DEFAULT 'pending', -- pending, in_progress, completed, cancelled
+    due_date DATE,
     completed_at DATETIME,
-    objective_id TEXT, -- Link to goals table
-    is_aligned_to_objective BOOLEAN DEFAULT FALSE,
-    blocker_description TEXT,
-    date DATE NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -286,17 +282,15 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS focus_sessions (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
-    task_id TEXT,
-    session_start DATETIME NOT NULL,
-    session_end DATETIME,
-    planned_duration_minutes INTEGER,
-    actual_duration_minutes INTEGER,
+    start_time DATETIME NOT NULL,
+    end_time DATETIME,
+    duration_minutes INTEGER,
+    session_type TEXT DEFAULT 'deep_work', -- deep_work, meetings, admin, break
     interruptions_count INTEGER DEFAULT 0,
-    quality_rating INTEGER, -- 1-5 self-reported focus quality
-    date DATE NOT NULL,
+    notes TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (task_id) REFERENCES task_tracking(id)
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
   )
 `);
 
@@ -304,19 +298,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS objective_progress (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
-    objective_id TEXT NOT NULL,
-    date DATE NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT,
+    target_date DATE,
     progress_percentage INTEGER DEFAULT 0, -- 0-100
-    tasks_completed_today INTEGER DEFAULT 0,
-    total_tasks_for_objective INTEGER DEFAULT 0,
-    estimated_completion_date DATE,
-    is_on_track BOOLEAN DEFAULT TRUE,
-    notes TEXT,
+    status TEXT DEFAULT 'active', -- active, completed, paused
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    FOREIGN KEY (objective_id) REFERENCES goals(id),
-    UNIQUE(user_id, objective_id, date)
+    FOREIGN KEY (user_id) REFERENCES users(id)
   )
 `);
 

@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Image from 'next/image';
+import FloatingChat from './FloatingChat';
 import { Mic, MicOff, Settings, Users, Target, BarChart3, FileText, Plus, Edit2, Trash2, Save, X, Calendar } from 'lucide-react';
 import { StandupQuestion } from '../types/database';
 import {
@@ -10,10 +12,7 @@ import {
   fetchObjectives,
   fetchTasks,
   fetchFocusSessions,
-  calculateMetrics,
-  updateDailyMetrics,
-  createObjective,
-  updateObjective
+  calculateMetrics
 } from '../lib/analytics';
 
 interface StandupQuestionWithAnalysis {
@@ -33,6 +32,7 @@ interface StandupQuestionWithAnalysis {
 }
 
 interface ChecklistItem {
+  id?: number | string;
   title: string;
   description?: string;
   priority?: number;
@@ -40,6 +40,17 @@ interface ChecklistItem {
   estimatedTimeMinutes?: number;
   status?: string;
   goalAlignment?: string[];
+  stakeholders?: string[];
+  risks?: string[];
+  context?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  history?: {
+    timestamp: string;
+    action: string;
+    user: string;
+    details?: string;
+  }[];
 }
 
 interface Goal {
@@ -54,6 +65,20 @@ interface Goal {
   stakeholders?: string[];
   created_at: string;
   updated_at: string;
+  attachments?: {
+    id: string;
+    name: string;
+    type: 'document' | 'spreadsheet' | 'link' | 'image';
+    url?: string;
+    fileData?: string;
+    extractedContent?: string;
+    metadata?: {
+      size?: number;
+      mimeType?: string;
+      uploadedAt: string;
+      extractedAt?: string;
+    };
+  }[];
 }
 
 interface Person {
@@ -77,6 +102,7 @@ function GoalsObjectivesView() {
   const [people, setPeople] = useState<Person[]>([]);
   const [editingItem, setEditingItem] = useState<Goal | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
   const [formData, setFormData] = useState<Partial<Goal>>({
     title: '',
     description: '',
@@ -84,7 +110,8 @@ function GoalsObjectivesView() {
     deadline: '',
     cadence_time: '',
     status: 'active',
-    stakeholders: []
+    stakeholders: [],
+    attachments: []
   });
 
   const loadGoals = useCallback(async () => {
@@ -110,7 +137,10 @@ function GoalsObjectivesView() {
   }, []);
 
   useEffect(() => {
-    loadGoals();
+    const initializeGoals = async () => {
+      await loadGoals();
+    };
+    initializeGoals();
   }, [loadGoals]);
 
   const handleSave = async () => {
@@ -347,6 +377,98 @@ function GoalsObjectivesView() {
               </div>
             </div>
 
+            {/* Document/Sheet/Link Attachments */}
+            <div>
+              <label className="block text-sm font-medium text-slate-300 mb-2">Attachments (Docs, Sheets, Links)</label>
+              <div className="flex flex-col gap-2">
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.webp,.md,.json"
+                  multiple
+                  onChange={async (e) => {
+                    const files = Array.from(e.target.files || []);
+                    if (!files.length) return;
+                    setUploadingDocument(true);
+                    // Simulate upload and extraction (replace with real API call)
+                    const newAttachments = await Promise.all(files.map(async (file) => {
+                      const reader = new FileReader();
+                      return new Promise((resolve) => {
+                        reader.onload = () => {
+                          resolve({
+                            id: Date.now() + Math.random(),
+                            name: file.name,
+                            type: 'document',
+                            fileData: reader.result,
+                            metadata: {
+                              size: file.size,
+                              mimeType: file.type,
+                              uploadedAt: new Date().toISOString()
+                            }
+                          });
+                        };
+                        reader.readAsDataURL(file);
+                      });
+                    }));
+                    setFormData((prev) => ({
+                      ...prev,
+                      attachments: [...(prev.attachments || []), ...newAttachments]
+                    }));
+                    setUploadingDocument(false);
+                  }}
+                  className="block w-full text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-violet-700 file:text-white hover:file:bg-violet-600"
+                />
+                <input
+                  type="url"
+                  placeholder="Paste a link to a doc, sheet, or resource..."
+                  className="w-full p-2 border border-slate-600 rounded bg-slate-700 text-slate-200 placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  onBlur={e => {
+                    const url = e.target.value.trim();
+                    if (url) {
+                      setFormData((prev) => ({
+                        ...prev,
+                        attachments: [
+                          ...(prev.attachments || []),
+                          {
+                            id: Date.now() + Math.random(),
+                            name: url,
+                            type: 'link',
+                            url,
+                            metadata: { uploadedAt: new Date().toISOString() }
+                          }
+                        ]
+                      }));
+                      e.target.value = '';
+                    }
+                  }}
+                />
+                {/* List of attachments */}
+                {formData.attachments && formData.attachments.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {formData.attachments.map((att, idx) => (
+                      <div key={att.id || idx} className="flex items-center space-x-2 bg-slate-700 rounded px-3 py-2">
+                        <span className="text-violet-300 text-xs font-mono truncate max-w-xs">
+                          {att.type === 'link' ? <a href={att.url} target="_blank" rel="noopener noreferrer" className="underline">{att.name}</a> : att.name}
+                        </span>
+                        <button
+                          className="ml-auto text-slate-400 hover:text-red-400"
+                          onClick={() => setFormData((prev) => ({
+                            ...prev,
+                            attachments: (prev.attachments || []).filter((_, i) => i !== idx)
+                          }))}
+                          title="Remove attachment"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {uploadingDocument && (
+                  <div className="text-xs text-violet-300 mt-1">Uploading and extracting...</div>
+                )}
+              </div>
+            </div>
+
             <div className="flex justify-end space-x-3 mt-6">
               <button
                 onClick={resetForm}
@@ -473,7 +595,10 @@ function PeopleManagementView() {
   }, []);
 
   useEffect(() => {
-    loadPeople();
+    const initializePeople = async () => {
+      await loadPeople();
+    };
+    initializePeople();
   }, [loadPeople]);
 
   const handleSave = async () => {
@@ -889,9 +1014,11 @@ function PeopleManagementView() {
               {/* Profile Picture */}
               <div className="flex justify-center mb-4">
                 {person.profile_picture ? (
-                  <img
+                  <Image
                     src={person.profile_picture}
                     alt={person.name}
+                    width={64}
+                    height={64}
                     className="w-16 h-16 rounded-full object-cover border-2 border-slate-600"
                     onError={(e) => {
                       e.currentTarget.style.display = 'none';
@@ -1598,6 +1725,8 @@ export default function Dashboard() {
   const [standupQuestions, setStandupQuestions] = useState<StandupQuestionWithAnalysis[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [mode, setMode] = useState<'cadence' | 'waterfall'>('cadence');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<ChecklistItem | null>(null);
 
   // Analytics state
   const [analyticsData, setAnalyticsData] = useState({
@@ -1773,6 +1902,18 @@ export default function Dashboard() {
   }, [searchParams]);
 
   // Function to change view and update URL
+  const handleChecklistUpdate = useCallback((newItems: ChecklistItem[]) => {
+    // Add new items to existing checklist
+    setChecklist(prevChecklist => {
+      const existingIds = new Set(prevChecklist.map(item => item.id));
+      const uniqueNewItems = newItems.filter(item => !existingIds.has(item.id));
+      return [...prevChecklist, ...uniqueNewItems];
+    });
+    
+    // Show notification
+    console.log('Checklist updated with new contextual items:', newItems.length);
+  }, []);
+
   const changeView = (view: string) => {
     setCurrentView(view);
     router.push(`/?view=${view}`, { scroll: false });
@@ -1991,89 +2132,108 @@ export default function Dashboard() {
 
       <div className="flex">
         {/* Sidebar */}
-        <nav className="w-64 bg-slate-800 shadow-sm min-h-screen border-r border-slate-700">
+        <nav className={`transition-all duration-300 ease-in-out ${
+          isSidebarCollapsed ? 'w-16' : 'w-64'
+        } bg-slate-800 shadow-sm min-h-screen border-r border-slate-700 relative`}>
+          {/* Collapse Toggle */}
+          <button
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="absolute -right-3 top-6 w-6 h-6 bg-slate-700 border border-slate-600 rounded-full flex items-center justify-center text-slate-300 hover:text-violet-300 hover:bg-slate-600 transition-colors z-10"
+            title={isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            {isSidebarCollapsed ? '→' : '←'}
+          </button>
+          
           <div className="p-4">
             {/* Integration Status */}
-            <div className="mb-6 p-3 bg-slate-700 rounded-lg border border-slate-600">
-              <h3 className="text-sm font-bold text-slate-100 mb-2">Integrations</h3>
-              <div className="space-y-1 text-xs">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-300">Google APIs</span>
-                  <span className={`px-2 py-1 rounded font-bold ${hasGoogleIntegration ? 'bg-violet-900 text-violet-300 border border-violet-500' : 'bg-slate-600 text-slate-400'}`}>
-                    {hasGoogleIntegration ? 'Connected' : 'Available'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-300">Slack</span>
-                  <span className="px-2 py-1 rounded bg-slate-600 text-slate-400 font-bold">Available</span>
+            {!isSidebarCollapsed && (
+              <div className="mb-6 p-3 bg-slate-700 rounded-lg border border-slate-600">
+                <h3 className="text-sm font-bold text-slate-100 mb-2">Integrations</h3>
+                <div className="space-y-1 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300">Google APIs</span>
+                    <span className={`px-2 py-1 rounded font-bold ${hasGoogleIntegration ? 'bg-violet-900 text-violet-300 border border-violet-500' : 'bg-slate-600 text-slate-400'}`}>
+                      {hasGoogleIntegration ? 'Connected' : 'Available'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-300">Slack</span>
+                    <span className="px-2 py-1 rounded bg-slate-600 text-slate-400 font-bold">Available</span>
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
             <ul className="space-y-2">
               <li>
                 <button
                   onClick={() => changeView('standup')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg transition-colors ${
                     currentView === 'standup' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
+                  title={isSidebarCollapsed ? 'Daily Standup' : ''}
                 >
-                  <Mic className="w-5 h-5 mr-3" />
-                  Daily Standup
+                  <Mic className={`w-5 h-5 ${!isSidebarCollapsed ? 'mr-3' : ''}`} />
+                  {!isSidebarCollapsed && 'Daily Standup'}
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => changeView('checklist')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg transition-colors ${
                     currentView === 'checklist' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
+                  title={isSidebarCollapsed ? 'Checklist' : ''}
                 >
-                  <FileText className="w-5 h-5 mr-3" />
-                  Checklist
+                  <FileText className={`w-5 h-5 ${!isSidebarCollapsed ? 'mr-3' : ''}`} />
+                  {!isSidebarCollapsed && 'Checklist'}
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => changeView('goals')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg transition-colors ${
                     currentView === 'goals' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
+                  title={isSidebarCollapsed ? 'Goals & Objectives' : ''}
                 >
-                  <Target className="w-5 h-5 mr-3" />
-                  Goals & Objectives
+                  <Target className={`w-5 h-5 ${!isSidebarCollapsed ? 'mr-3' : ''}`} />
+                  {!isSidebarCollapsed && 'Goals & Objectives'}
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => changeView('people')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg transition-colors ${
                     currentView === 'people' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
+                  title={isSidebarCollapsed ? 'People' : ''}
                 >
-                  <Users className="w-5 h-5 mr-3" />
-                  People
+                  <Users className={`w-5 h-5 ${!isSidebarCollapsed ? 'mr-3' : ''}`} />
+                  {!isSidebarCollapsed && 'People'}
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => changeView('analytics')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg transition-colors ${
                     currentView === 'analytics' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
+                  title={isSidebarCollapsed ? 'Analytics' : ''}
                 >
-                  <BarChart3 className="w-5 h-5 mr-3" />
-                  Analytics
+                  <BarChart3 className={`w-5 h-5 ${!isSidebarCollapsed ? 'mr-3' : ''}`} />
+                  {!isSidebarCollapsed && 'Analytics'}
                 </button>
               </li>
               <li>
                 <button
                   onClick={() => changeView('settings')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                  className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center px-2' : 'px-3'} py-2 rounded-lg transition-colors ${
                     currentView === 'settings' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
+                  title={isSidebarCollapsed ? 'Settings' : ''}
                 >
-                  <Settings className="w-5 h-5 mr-3" />
-                  Settings
+                  <Settings className={`w-5 h-5 ${!isSidebarCollapsed ? 'mr-3' : ''}`} />
+                  {!isSidebarCollapsed && 'Settings'}
                 </button>
               </li>
             </ul>
@@ -2185,32 +2345,254 @@ export default function Dashboard() {
           )}
 
           {currentView === 'checklist' && (
-            <div className="max-w-4xl mx-auto">
-              <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
-                <h2 className="text-2xl font-bold mb-6 text-violet-300">Today's Checklist</h2>
+            <div className="h-full flex">
+              {/* Left Panel - Task List (1/4) */}
+              <div className="w-1/4 bg-slate-800 border-r border-slate-700 p-4 overflow-y-auto">
+                <div className="flex items-center justify-between mb-4">
+                  <h2 className="text-xl font-bold text-violet-300">Tasks</h2>
+                  <span className="bg-violet-900 text-violet-300 px-2 py-1 rounded text-sm font-medium">
+                    {checklist.length}
+                  </span>
+                </div>
+                
                 {checklist.length === 0 ? (
-                  <p className="text-slate-400">Complete your standup to generate checklist items.</p>
+                  <div className="text-center py-8">
+                    <div className="text-slate-500 mb-2">📝</div>
+                    <p className="text-slate-400 text-sm">No tasks yet</p>
+                    <p className="text-slate-500 text-xs mt-1">Complete your standup to generate tasks</p>
+                  </div>
                 ) : (
-                  <div className="space-y-4">
-                    {checklist.map((item: ChecklistItem, index) => (
-                      <div key={index} className="p-4 border border-slate-600 rounded-lg bg-slate-700">
-                        <div className="flex items-center justify-between mb-2">
-                          <h3 className="font-medium text-slate-100">{item.title}</h3>
-                          <span className={`px-2 py-1 rounded text-xs font-medium ${
-                            (item.priority || 5) <= 2 ? 'bg-red-900 text-red-300 border border-red-700' :
-                            (item.priority || 5) <= 3 ? 'bg-yellow-900 text-yellow-300 border border-yellow-700' :
-                            'bg-green-900 text-green-300 border border-green-700'
-                          }`}>
-                            Priority {item.priority || 'N/A'}
-                          </span>
+                  <div className="space-y-2">
+                    {/* Priority Groups */}
+                    {[1, 2, 3, 4, 5].map(priority => {
+                      const priorityTasks = checklist.filter(task => (task.priority || 5) === priority);
+                      if (priorityTasks.length === 0) return null;
+                      
+                      return (
+                        <div key={priority} className="mb-4">
+                          <div className="flex items-center mb-2">
+                            <span className={`w-3 h-3 rounded-full mr-2 ${
+                              priority <= 2 ? 'bg-red-400' :
+                              priority <= 3 ? 'bg-yellow-400' : 'bg-green-400'
+                            }`}></span>
+                            <span className="text-xs font-medium text-slate-300 uppercase tracking-wide">
+                              {priority <= 2 ? 'High' : priority <= 3 ? 'Medium' : 'Low'} Priority
+                            </span>
+                          </div>
+                          
+                          {priorityTasks.map((task, index) => (
+                            <button
+                              key={task.id || index}
+                              onClick={() => setSelectedTask(task)}
+                              className={`w-full text-left p-3 rounded-lg border transition-all mb-2 ${
+                                selectedTask?.id === task.id || (selectedTask === task && !task.id)
+                                  ? 'bg-violet-900 border-violet-500 text-violet-300'
+                                  : 'bg-slate-700 border-slate-600 text-slate-200 hover:bg-slate-600'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between mb-1">
+                                <h4 className="font-medium text-sm leading-tight pr-2">{task.title}</h4>
+                                {task.estimatedTimeMinutes && (
+                                  <span className="text-xs text-slate-400 flex-shrink-0">
+                                    {task.estimatedTimeMinutes}m
+                                  </span>
+                                )}
+                              </div>
+                              {task.description && (
+                                <p className="text-xs text-slate-400 line-clamp-2 mt-1">
+                                  {task.description}
+                                </p>
+                              )}
+                              {task.stakeholders && task.stakeholders.length > 0 && (
+                                <div className="flex items-center mt-2">
+                                  <span className="text-xs text-slate-500">👥 {task.stakeholders.length}</span>
+                                </div>
+                              )}
+                            </button>
+                          ))}
                         </div>
-                        <p className="text-sm text-slate-300 mb-2">{item.description}</p>
-                        <div className="flex items-center justify-between text-xs text-slate-400">
-                          <span>Est. {item.estimatedTimeMinutes || 'N/A'} min</span>
-                          <span>Goal Aligned: {item.goalAlignment?.join(', ') || 'None'}</span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+              
+              {/* Right Panel - Task Detail (3/4) */}
+              <div className="w-3/4 p-6 overflow-y-auto">
+                {!selectedTask ? (
+                  <div className="flex items-center justify-center h-full">
+                    <div className="text-center">
+                      <div className="text-6xl mb-4">📋</div>
+                      <h3 className="text-xl font-semibold text-slate-300 mb-2">Select a task</h3>
+                      <p className="text-slate-400">Choose a task from the left panel to view details and take action</p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {/* Task Header */}
+                    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex-1">
+                          <h1 className="text-2xl font-bold text-violet-300 mb-2">{selectedTask.title}</h1>
+                          <div className="flex items-center space-x-4">
+                            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                              (selectedTask.priority || 5) <= 2 ? 'bg-red-900 text-red-300 border border-red-700' :
+                              (selectedTask.priority || 5) <= 3 ? 'bg-yellow-900 text-yellow-300 border border-yellow-700' :
+                              'bg-green-900 text-green-300 border border-green-700'
+                            }`}>
+                              Priority {selectedTask.priority || 'N/A'}
+                            </span>
+                            {selectedTask.estimatedTimeMinutes && (
+                              <span className="px-3 py-1 bg-slate-700 text-slate-300 rounded-full text-sm">
+                                ⏱️ {selectedTask.estimatedTimeMinutes} min
+                              </span>
+                            )}
+                            <span className={`px-3 py-1 rounded-full text-sm ${
+                              selectedTask.status === 'completed' ? 'bg-green-900 text-green-300' :
+                              selectedTask.status === 'in_progress' ? 'bg-blue-900 text-blue-300' :
+                              'bg-slate-700 text-slate-300'
+                            }`}>
+                              {selectedTask.status || 'pending'}
+                            </span>
+                          </div>
                         </div>
+                        <button className="text-slate-400 hover:text-slate-200 p-2">
+                          <span className="text-xl">⚙️</span>
+                        </button>
                       </div>
-                    ))}
+                      
+                      {selectedTask.description && (
+                        <p className="text-slate-300 leading-relaxed">{selectedTask.description}</p>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* Stakeholders */}
+                      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                        <div className="flex items-center mb-4">
+                          <span className="text-xl mr-2">👥</span>
+                          <h3 className="text-lg font-semibold text-violet-300">Stakeholders</h3>
+                        </div>
+                        {selectedTask.stakeholders && selectedTask.stakeholders.length > 0 ? (
+                          <div className="space-y-2">
+                            {selectedTask.stakeholders.map((stakeholder, index) => (
+                              <div key={index} className="flex items-center space-x-2 p-2 bg-slate-700 rounded">
+                                <div className="w-6 h-6 bg-violet-600 rounded-full flex items-center justify-center text-xs text-white">
+                                  {stakeholder[0]?.toUpperCase()}
+                                </div>
+                                <span className="text-slate-200">{stakeholder}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-slate-400">No stakeholders assigned</p>
+                        )}
+                      </div>
+
+                      {/* Risks */}
+                      <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                        <div className="flex items-center mb-4">
+                          <span className="text-xl mr-2">⚠️</span>
+                          <h3 className="text-lg font-semibold text-violet-300">Risks</h3>
+                        </div>
+                        {selectedTask.risks && selectedTask.risks.length > 0 ? (
+                          <div className="space-y-2">
+                            {selectedTask.risks.map((risk, index) => (
+                              <div key={index} className="p-2 bg-red-900/20 border border-red-700 rounded text-red-300 text-sm">
+                                {risk}
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-slate-400">No risks identified</p>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Live Advice */}
+                    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                      <div className="flex items-center mb-4">
+                        <span className="text-xl mr-2">💡</span>
+                        <h3 className="text-lg font-semibold text-violet-300">Live Advice</h3>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="p-3 bg-blue-900/20 border border-blue-700 rounded">
+                          <p className="text-blue-300 text-sm">
+                            <strong>Context:</strong> This task is scheduled for {new Date().toLocaleDateString()} during {new Date().getHours() < 12 ? 'morning' : new Date().getHours() < 17 ? 'afternoon' : 'evening'} hours.
+                          </p>
+                        </div>
+                        <div className="p-3 bg-green-900/20 border border-green-700 rounded">
+                          <p className="text-green-300 text-sm">
+                            <strong>Suggestion:</strong> Consider breaking this down into smaller 25-minute focused sessions for better completion rate.
+                          </p>
+                        </div>
+                        {selectedTask.goalAlignment && selectedTask.goalAlignment.length > 0 && (
+                          <div className="p-3 bg-violet-900/20 border border-violet-700 rounded">
+                            <p className="text-violet-300 text-sm">
+                              <strong>Goal Alignment:</strong> This task contributes to: {selectedTask.goalAlignment.join(', ')}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Update History */}
+                    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                      <div className="flex items-center mb-4">
+                        <span className="text-xl mr-2">📜</span>
+                        <h3 className="text-lg font-semibold text-violet-300">Update History</h3>
+                      </div>
+                      {selectedTask.history && selectedTask.history.length > 0 ? (
+                        <div className="space-y-2">
+                          {selectedTask.history.map((entry, index) => (
+                            <div key={index} className="p-3 bg-slate-700 rounded border-l-4 border-violet-500">
+                              <div className="flex items-center justify-between mb-1">
+                                <span className="text-slate-200 font-medium">{entry.action}</span>
+                                <span className="text-slate-400 text-xs">{entry.timestamp}</span>
+                              </div>
+                              <p className="text-slate-300 text-sm">{entry.details}</p>
+                              <span className="text-slate-400 text-xs">by {entry.user}</span>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-slate-400">No update history available</p>
+                      )}
+                    </div>
+
+                    {/* Quick Actions */}
+                    <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+                      <div className="flex items-center mb-4">
+                        <span className="text-xl mr-2">⚡</span>
+                        <h3 className="text-lg font-semibold text-violet-300">Quick Actions</h3>
+                      </div>
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                        <button className="bg-green-700 hover:bg-green-600 text-white px-4 py-2 rounded-lg transition-colors">
+                          ✅ Mark Complete
+                        </button>
+                        <button className="bg-blue-700 hover:bg-blue-600 text-white px-4 py-2 rounded-lg transition-colors">
+                          ▶️ Start Timer
+                        </button>
+                        <button className="bg-orange-700 hover:bg-orange-600 text-white px-4 py-2 rounded-lg transition-colors">
+                          🔄 Update Status
+                        </button>
+                        <button className="bg-purple-700 hover:bg-purple-600 text-white px-4 py-2 rounded-lg transition-colors">
+                          👥 Add Stakeholder
+                        </button>
+                        <button className="bg-red-700 hover:bg-red-600 text-white px-4 py-2 rounded-lg transition-colors">
+                          ⚠️ Flag Risk
+                        </button>
+                        <button className="bg-indigo-700 hover:bg-indigo-600 text-white px-4 py-2 rounded-lg transition-colors">
+                          📝 Add Note
+                        </button>
+                        <button className="bg-teal-700 hover:bg-teal-600 text-white px-4 py-2 rounded-lg transition-colors">
+                          🔗 Link Goal
+                        </button>
+                        <button className="bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg transition-colors">
+                          📤 Share Task
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -2223,7 +2605,7 @@ export default function Dashboard() {
           {currentView === 'people' && <PeopleManagementView />}
 
           {currentView === 'analytics' && (
-            <div className="max-w-7xl mx-auto">
+            <div className="max-w-7xl mx-auto px-4 py-6">
               {analyticsData.isLoading ? (
                 <div className="flex justify-center items-center h-64">
                   <div className="text-slate-400">Loading analytics data...</div>
@@ -2233,9 +2615,9 @@ export default function Dashboard() {
                   <div className="text-red-300">{analyticsData.error}</div>
                 </div>
               ) : (
-                <>
+                <div className="space-y-8">
                   {/* Key Metrics Cards - Top Row */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                     {/* Today's Focus Score */}
                     <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
                       <div className="flex items-center justify-between mb-4">
@@ -2278,6 +2660,7 @@ export default function Dashboard() {
                         <div className="w-full bg-slate-700 rounded-full h-2">
                           <div className="bg-orange-400 h-2 rounded-full" style={{width: `${Math.round(analyticsData.current.proactiveness_score)}%`}}></div>
                         </div>
+                      </div>
                     </div>
 
                     {/* Objective Alignment */}
@@ -2297,12 +2680,12 @@ export default function Dashboard() {
                   </div>
 
                   {/* Performance Visualizations - Middle Section */}
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     {/* Weekly Completion Trend */}
                     <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
                       <h3 className="text-xl font-bold text-violet-300 mb-6">Weekly Completion Trend</h3>
                       <div className="space-y-4">
-                        {analyticsData.weekly.map((dayData, index) => {
+                        {analyticsData.weekly.map((dayData) => {
                           const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
                           const dayName = dayNames[new Date(dayData.date).getDay()];
                           const completion = Math.round(dayData.completion);
@@ -2327,7 +2710,7 @@ export default function Dashboard() {
                       <h3 className="text-xl font-bold text-violet-300 mb-6">Performance Heatmap</h3>
                       <div className="space-y-4">
                         <div className="grid grid-cols-7 gap-2">
-                          {analyticsData.calendar.map((dayData, i) => {
+                          {analyticsData.calendar.map((dayData) => {
                             const intensity = dayData.completion / 100;
                             const focusScore = dayData.focus / 100;
                             const proactiveness = dayData.proactiveness / 100;
@@ -2374,7 +2757,7 @@ export default function Dashboard() {
                   </div>
 
                   {/* Actionable Insights - Bottom Section */}
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                     {/* Objective Progress Tracker */}
                     <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
                       <h3 className="text-xl font-bold text-violet-300 mb-6">Objective Progress</h3>
@@ -2384,7 +2767,7 @@ export default function Dashboard() {
                             <div className="flex items-center justify-between">
                               <span className="text-slate-200 font-medium">{objective.title}</span>
                               <span className={`text-xs px-2 py-1 rounded ${
-                                new Date(objective.target_date) < new Date(Date.now() + 7*24*60*60*1000) 
+                                new Date(objective.target_date) < new Date(new Date().getTime() + 7*24*60*60*1000) 
                                   ? 'bg-red-900 text-red-300' : 'bg-slate-700 text-slate-400'
                               }`}>
                                 {new Date(objective.target_date).toLocaleDateString()}
@@ -2404,64 +2787,6 @@ export default function Dashboard() {
                         ))}
                       </div>
                     </div>
-
-                {/* AI Insights Panel */}
-                <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
-                  <h3 className="text-xl font-bold text-violet-300 mb-6">AI Insights</h3>
-                  <div className="space-y-4">
-                    <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
-                      <div className="flex items-start space-x-3">
-                        <span className="text-lg">🧠</span>
-                        <div>
-                          <h4 className="text-slate-200 font-medium">Today&apos;s Pattern</h4>
-                          <p className="text-sm text-slate-400 mt-1">
-                            You&apos;re 23% more productive in the mornings. Consider scheduling high-priority tasks before 11 AM.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
-                      <div className="flex items-start space-x-3">
-                        <span className="text-lg">🚧</span>
-                        <div>
-                          <h4 className="text-slate-200 font-medium">Blockers Alert</h4>
-                          <p className="text-sm text-slate-400 mt-1">
-                            &quot;Waiting for feedback&quot; appears 3x this week. Consider setting up async check-ins.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
-                      <div className="flex items-start space-x-3">
-                        <span className="text-lg">💡</span>
-                        <div>
-                          <h4 className="text-slate-200 font-medium">Optimization</h4>
-                          <p className="text-sm text-slate-400 mt-1">
-                            Break down &quot;Team Onboarding&quot; into smaller 25-min tasks for better completion rate.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                    </div>
-
-                    <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
-                      <div className="flex items-start space-x-3">
-                        <span className="text-lg">💡</span>
-                        <div>
-                          <h4 className="text-slate-200 font-medium">Optimization</h4>
-                          <p className="text-sm text-slate-400 mt-1">
-                            Break down large tasks into smaller 25-min chunks for better completion rate.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
 
                     {/* AI Insights Panel */}
                     <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
@@ -2512,16 +2837,16 @@ export default function Dashboard() {
                         {/* Action Buttons */}
                         <button 
                           onClick={() => changeView('standup')}
-                          className="w-full bg-violet-900 text-violet-300 px-4 py-3 rounded-lg border border-violet-500 hover:bg-violet-800 font-medium"
+                          className="w-full bg-violet-900 text-violet-300 px-4 py-3 rounded-lg border border-violet-500 hover:bg-violet-800 font-medium transition-colors"
                         >
                           🏃‍♂️ Start Daily Standup
                         </button>
 
-                        <button className="w-full bg-slate-700 text-slate-300 px-4 py-3 rounded-lg border border-slate-600 hover:bg-slate-600 font-medium">
+                        <button className="w-full bg-slate-700 text-slate-300 px-4 py-3 rounded-lg border border-slate-600 hover:bg-slate-600 font-medium transition-colors">
                           ⏱️ Start Focus Session
                         </button>
 
-                        <button className="w-full bg-slate-700 text-slate-300 px-4 py-3 rounded-lg border border-slate-600 hover:bg-slate-600 font-medium">
+                        <button className="w-full bg-slate-700 text-slate-300 px-4 py-3 rounded-lg border border-slate-600 hover:bg-slate-600 font-medium transition-colors">
                           📞 Request Check-in
                         </button>
 
@@ -2543,7 +2868,7 @@ export default function Dashboard() {
                       </div>
                     </div>
                   </div>
-                </>
+                </div>
               )}
             </div>
           )}
@@ -2551,6 +2876,12 @@ export default function Dashboard() {
           {currentView === 'settings' && <SettingsView />}
         </main>
       </div>
+      
+      {/* Universal Floating Chat */}
+      <FloatingChat 
+        currentView={currentView} 
+        onChecklistUpdate={handleChecklistUpdate}
+      />
     </div>
   );
 }

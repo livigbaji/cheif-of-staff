@@ -17,7 +17,7 @@ export const authOptions: NextAuthOptions = {
     })
   ],
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account }) {
       if (account?.provider === 'google') {
         try {
           // Check if user exists
@@ -64,7 +64,7 @@ export const authOptions: NextAuthOptions = {
       }
       return true;
     },
-    async session({ session, token }) {
+    async session({ session }) {
       if (session.user?.email) {
         const user = db.prepare('SELECT * FROM users WHERE email = ?').get(session.user.email);
         if (user) {

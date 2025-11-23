@@ -4,7 +4,7 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import db from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   const session = await getServerSession(authOptions);
   
   // For guest mode, return empty array

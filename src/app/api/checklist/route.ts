@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
     const sessionId = searchParams.get('sessionId');
 
     let whereClause = 'WHERE user_id = ?';
-    let params: any[] = [session.user.id];
+    const params: string[] = [session.user.id];
 
     if (sessionId) {
       whereClause += ' AND standup_session_id = ?';

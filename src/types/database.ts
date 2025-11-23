@@ -65,6 +65,11 @@ export interface StandupSession {
   updated_at: string;
 }
 
+export interface StandupQuestion {
+  id: number;
+  text: string;
+}
+
 export interface ChecklistItem {
   id: string;
   standup_session_id: string;

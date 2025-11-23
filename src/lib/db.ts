@@ -32,6 +32,7 @@ const initializeDatabase = () => {
       strengths TEXT,
       weaknesses TEXT,
       work_style TEXT,
+      questions_json TEXT, -- JSON array of standup questions
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
@@ -224,6 +225,13 @@ try {
 
 try {
   db.exec(`ALTER TABLE people_profiles ADD COLUMN sentiment_summary TEXT`);
+} catch {
+  // Column already exists or other error - ignore
+}
+
+// Add questions column for custom standup questions
+try {
+  db.exec(`ALTER TABLE user_profiles ADD COLUMN questions_json TEXT`);
 } catch {
   // Column already exists or other error - ignore
 }

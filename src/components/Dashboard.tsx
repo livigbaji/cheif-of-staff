@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { Mic, MicOff, Settings, Users, Target, BarChart3, FileText, Plus, Edit2, Trash2, Save, X, Calendar } from 'lucide-react';
+import { StandupQuestion } from '../types/database';
 
-interface StandupQuestion {
+interface StandupQuestionWithAnalysis {
   id: string;
   question: string;
   answer: string;
@@ -952,6 +953,19 @@ function SettingsView() {
     weaknesses: '',
     work_style: ''
   });
+  const [standupQuestions, setStandupQuestions] = useState<string[]>([
+    'What did you do yesterday?',
+    'What were you not able to do yesterday?',
+    'Who do you need to do it?',
+    'What do you need to do it?',
+    'Why were you not able to do it?',
+    'What are you doing today?',
+    'What could stop you from doing it?',
+    'What do you need to understand going into the day?'
+  ]);
+  const [newQuestion, setNewQuestion] = useState('');
+  const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
+  const [editingQuestionText, setEditingQuestionText] = useState('');
 
   const loadSettings = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -980,12 +994,28 @@ function SettingsView() {
           });
         }
       }
+      
+      // Load standup questions
+      const questionsResponse = await fetch('/api/standup/questions');
+      if (questionsResponse.ok) {
+        const questionsData = await questionsResponse.json();
+        if (questionsData.success && questionsData.questions && questionsData.isCustom) {
+          // Only override defaults if user has custom questions
+          const questionTexts = questionsData.questions.map((q: StandupQuestion | string) => 
+            typeof q === 'string' ? q : q.text
+          );
+          setStandupQuestions(questionTexts);
+        } else if (questionsData.success && !questionsData.isCustom) {
+          // If no custom questions exist, save the current defaults as user's questions
+          setTimeout(() => saveStandupQuestions(), 100);
+        }
+      }
     } catch (error) {
       console.error('Error loading settings:', error);
     } finally {
       setIsLoading(false);
     }
-  }, [session?.user?.id]);
+  }, [session?.user?.id, saveStandupQuestions]);
 
   useEffect(() => {
     loadSettings();
@@ -1086,6 +1116,79 @@ function SettingsView() {
       console.error('Error resetting data:', error);
       alert('Error resetting data');
     }
+  };
+
+  const saveStandupQuestions = useCallback(async () => {
+    try {
+      // Convert string array to object format for API
+      const questionsForAPI = standupQuestions.map((text, index) => ({
+        id: index + 1,
+        text: text
+      }));
+      
+      const response = await fetch('/api/standup/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ questions: questionsForAPI })
+      });
+
+      if (response.ok) {
+        console.log('Standup questions saved successfully');
+      }
+    } catch (error) {
+      console.error('Error saving standup questions:', error);
+    }
+  }, [standupQuestions]);
+
+  const addStandupQuestion = () => {
+    if (!newQuestion.trim()) return;
+    
+    const updatedQuestions = [...standupQuestions, newQuestion.trim()];
+    setStandupQuestions(updatedQuestions);
+    setNewQuestion('');
+    saveStandupQuestions();
+  };
+
+  const editStandupQuestion = (index: number) => {
+    setEditingQuestionIndex(index);
+    setEditingQuestionText(standupQuestions[index]);
+  };
+
+  const saveEditedQuestion = () => {
+    if (editingQuestionIndex === null || !editingQuestionText.trim()) return;
+    
+    const updatedQuestions = [...standupQuestions];
+    updatedQuestions[editingQuestionIndex] = editingQuestionText.trim();
+    setStandupQuestions(updatedQuestions);
+    setEditingQuestionIndex(null);
+    setEditingQuestionText('');
+    saveStandupQuestions();
+  };
+
+  const deleteStandupQuestion = (index: number) => {
+    if (!confirm('Are you sure you want to delete this question?')) return;
+    
+    const updatedQuestions = standupQuestions.filter((_, i) => i !== index);
+    setStandupQuestions(updatedQuestions);
+    saveStandupQuestions();
+  };
+
+  const resetToDefaultQuestions = () => {
+    if (!confirm('Reset to default standup questions? This will replace all current questions.')) return;
+    
+    const defaultQuestions = [
+      'What did you do yesterday?',
+      'What were you not able to do yesterday?',
+      'Who do you need to do it?',
+      'What do you need to do it?',
+      'Why were you not able to do it?',
+      'What are you doing today?',
+      'What could stop you from doing it?',
+      'What do you need to understand going into the day?'
+    ];
+    
+    setStandupQuestions(defaultQuestions);
+    saveStandupQuestions();
   };
 
   return (
@@ -1251,6 +1354,107 @@ function SettingsView() {
             </div>
           </div>
 
+          {/* Standup Questions Configuration */}
+          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold text-violet-300 flex items-center">
+                <span className="mr-2">❓</span>
+                Standup Questions
+              </h2>
+              <button
+                onClick={resetToDefaultQuestions}
+                className="text-sm bg-slate-600 text-slate-300 px-3 py-1 rounded hover:bg-slate-500 transition-colors"
+              >
+                Reset to Default
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Current Questions */}
+              <div className="space-y-2">
+                {standupQuestions.map((question, index) => (
+                  <div key={index} className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg">
+                    {editingQuestionIndex === index ? (
+                      <>
+                        <input
+                          type="text"
+                          value={editingQuestionText}
+                          onChange={(e) => setEditingQuestionText(e.target.value)}
+                          className="flex-1 p-2 border border-slate-600 rounded bg-slate-600 text-white focus:border-violet-400 focus:outline-none"
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') saveEditedQuestion();
+                            if (e.key === 'Escape') {
+                              setEditingQuestionIndex(null);
+                              setEditingQuestionText('');
+                            }
+                          }}
+                          autoFocus
+                        />
+                        <button
+                          onClick={saveEditedQuestion}
+                          className="text-green-400 hover:text-green-300 p-1"
+                        >
+                          <Save className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingQuestionIndex(null);
+                            setEditingQuestionText('');
+                          }}
+                          className="text-slate-400 hover:text-slate-300 p-1"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-slate-400 text-sm w-6">{index + 1}.</span>
+                        <span className="flex-1 text-white">{question}</span>
+                        <button
+                          onClick={() => editStandupQuestion(index)}
+                          className="text-slate-400 hover:text-violet-300 p-1"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => deleteStandupQuestion(index)}
+                          className="text-slate-400 hover:text-red-400 p-1"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Add New Question */}
+              <div className="flex space-x-3">
+                <input
+                  type="text"
+                  value={newQuestion}
+                  onChange={(e) => setNewQuestion(e.target.value)}
+                  placeholder="Add a new standup question..."
+                  className="flex-1 p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addStandupQuestion();
+                  }}
+                />
+                <button
+                  onClick={addStandupQuestion}
+                  disabled={!newQuestion.trim()}
+                  className="bg-violet-400 text-white px-4 py-2 rounded-lg hover:bg-violet-300 disabled:opacity-50 transition-colors"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-500">
+                Customize your daily standup questions. Changes will apply to new standups.
+              </p>
+            </div>
+          </div>
+
           {/* Account Information */}
           <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
             <h2 className="text-xl font-bold text-violet-300 mb-4 flex items-center">
@@ -1328,16 +1532,7 @@ export default function Dashboard() {
   const [apiKey, setApiKey] = useState('');
   const [isListening, setIsListening] = useState(false);
   const [isGuestMode, setIsGuestMode] = useState(!hasGoogleIntegration);
-  const [standupQuestions, setStandupQuestions] = useState<StandupQuestion[]>([
-    { id: '1', question: 'What did you do yesterday?', answer: '', isAnalyzed: false },
-    { id: '2', question: 'What were you not able to do yesterday?', answer: '', isAnalyzed: false },
-    { id: '3', question: 'Who do you need to do it?', answer: '', isAnalyzed: false },
-    { id: '4', question: 'What do you need to do it?', answer: '', isAnalyzed: false },
-    { id: '5', question: 'Why were you not able to do it?', answer: '', isAnalyzed: false },
-    { id: '6', question: 'What are you doing today?', answer: '', isAnalyzed: false },
-    { id: '7', question: 'What could stop you from doing it?', answer: '', isAnalyzed: false },
-    { id: '8', question: 'What do you need to understand going into the day?', answer: '', isAnalyzed: false },
-  ]);
+  const [standupQuestions, setStandupQuestions] = useState<StandupQuestionWithAnalysis[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [mode, setMode] = useState<'cadence' | 'waterfall'>('cadence');
 
@@ -1353,14 +1548,61 @@ export default function Dashboard() {
     }
   }, [hasGoogleIntegration]);
 
+  const loadStandupQuestions = useCallback(async () => {
+    try {
+      const response = await fetch('/api/standup/questions');
+      const data = await response.json();
+      if (data.success && data.questions.length > 0) {
+        // Convert simple questions into full question objects for the standup interface
+        const questionsWithAnalysis = data.questions.map((q: StandupQuestion, index: number) => ({
+          id: `q${index + 1}`,
+          question: q.text,
+          answer: '',
+          isAnalyzed: false
+        }));
+        setStandupQuestions(questionsWithAnalysis);
+      } else {
+        // Use default questions if none found
+        setStandupQuestions([
+          { id: 'q1', question: 'What did you do yesterday?', answer: '', isAnalyzed: false },
+          { id: 'q2', question: 'What were you not able to do yesterday?', answer: '', isAnalyzed: false },
+          { id: 'q3', question: 'Who do you need to do it?', answer: '', isAnalyzed: false },
+          { id: 'q4', question: 'What do you need to do it?', answer: '', isAnalyzed: false },
+          { id: 'q5', question: 'Why were you not able to do it?', answer: '', isAnalyzed: false },
+          { id: 'q6', question: 'What are you doing today?', answer: '', isAnalyzed: false },
+          { id: 'q7', question: 'What could stop you from doing it?', answer: '', isAnalyzed: false },
+          { id: 'q8', question: 'What do you need to understand going into the day?', answer: '', isAnalyzed: false }
+        ]);
+      }
+    } catch (error) {
+      console.error('Error loading standup questions:', error);
+      // If loading fails, use default questions
+      setStandupQuestions([
+        { id: 'q1', question: 'What did you do yesterday?', answer: '', isAnalyzed: false },
+        { id: 'q2', question: 'What were you not able to do yesterday?', answer: '', isAnalyzed: false },
+        { id: 'q3', question: 'Who do you need to do it?', answer: '', isAnalyzed: false },
+        { id: 'q4', question: 'What do you need to do it?', answer: '', isAnalyzed: false },
+        { id: 'q5', question: 'Why were you not able to do it?', answer: '', isAnalyzed: false },
+        { id: 'q6', question: 'What are you doing today?', answer: '', isAnalyzed: false },
+        { id: 'q7', question: 'What could stop you from doing it?', answer: '', isAnalyzed: false },
+        { id: 'q8', question: 'What do you need to understand going into the day?', answer: '', isAnalyzed: false }
+      ]);
+    }
+  }, []);
+
   useEffect(() => {
+    // Always load standup questions first, regardless of session status
+    setTimeout(() => {
+      loadStandupQuestions();
+    }, 0);
+    
     if (session) {
       // Use setTimeout to avoid synchronous setState in effect
       setTimeout(() => {
         checkGeminiConfiguration();
       }, 0);
     }
-  }, [session, checkGeminiConfiguration]);
+  }, [loadStandupQuestions, session, checkGeminiConfiguration]);
 
   const configureGemini = async () => {
     try {

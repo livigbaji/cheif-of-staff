@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
-import { Mic, MicOff, Settings, Users, Target, BarChart3, FileText } from 'lucide-react';
+import { Mic, MicOff, Settings, Users, Target, BarChart3, FileText, Plus, Edit2, Trash2, Save, X, Calendar } from 'lucide-react';
 
 interface StandupQuestion {
   id: string;
@@ -28,6 +28,1292 @@ interface ChecklistItem {
   estimatedTimeMinutes?: number;
   status?: string;
   goalAlignment?: string[];
+}
+
+interface Goal {
+  id: string;
+  title: string;
+  description?: string;
+  type: 'goal' | 'routine' | 'business_objective';
+  priority: number;
+  deadline?: string;
+  cadence_time?: string;
+  status: 'active' | 'completed' | 'paused' | 'archived';
+  stakeholders?: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+interface Person {
+  id: string;
+  name: string;
+  work_function?: string;
+  characteristics?: string;
+  biases?: string;
+  communication_style?: string;
+  relationship_type?: string;
+  profile_picture?: string;
+  sentiment_summary?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+function GoalsObjectivesView() {
+  const [activeTab, setActiveTab] = useState<'objectives' | 'routines'>('objectives');
+  const [goals, setGoals] = useState<Goal[]>([]);
+  const [routines, setRoutines] = useState<Goal[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
+  const [editingItem, setEditingItem] = useState<Goal | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [formData, setFormData] = useState<Partial<Goal>>({
+    title: '',
+    description: '',
+    priority: 1,
+    deadline: '',
+    cadence_time: '',
+    status: 'active',
+    stakeholders: []
+  });
+
+  const loadGoals = useCallback(async () => {
+    try {
+      const [goalsResponse, peopleResponse] = await Promise.all([
+        fetch('/api/goals'),
+        fetch('/api/people')
+      ]);
+      
+      if (goalsResponse.ok) {
+        const allGoals = await goalsResponse.json();
+        setGoals(allGoals.filter((g: Goal) => g.type === 'goal' || g.type === 'business_objective'));
+        setRoutines(allGoals.filter((g: Goal) => g.type === 'routine'));
+      }
+      
+      if (peopleResponse.ok) {
+        const peopleData = await peopleResponse.json();
+        setPeople(peopleData);
+      }
+    } catch (error) {
+      console.error('Error loading data:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadGoals();
+  }, [loadGoals]);
+
+  const handleSave = async () => {
+    try {
+      const payload = {
+        ...formData,
+        type: activeTab === 'objectives' ? 'goal' : 'routine'
+      };
+
+      const url = editingItem ? `/api/goals?id=${editingItem.id}` : '/api/goals';
+      const method = editingItem ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (response.ok) {
+        await loadGoals();
+        resetForm();
+      }
+    } catch (error) {
+      console.error('Error saving:', error);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this item?')) return;
+    
+    try {
+      const response = await fetch(`/api/goals?id=${id}`, { method: 'DELETE' });
+      if (response.ok) {
+        await loadGoals();
+      }
+    } catch (error) {
+      console.error('Error deleting:', error);
+    }
+  };
+
+  const handleEdit = (item: Goal) => {
+    setEditingItem(item);
+    setFormData({
+      title: item.title,
+      description: item.description || '',
+      priority: item.priority,
+      deadline: item.deadline || '',
+      cadence_time: item.cadence_time || '',
+      status: item.status,
+      stakeholders: item.stakeholders || []
+    });
+    setShowForm(true);
+  };
+
+  const resetForm = () => {
+    setEditingItem(null);
+    setShowForm(false);
+    setFormData({
+      title: '',
+      description: '',
+      priority: 1,
+      deadline: '',
+      cadence_time: '',
+      status: 'active',
+      stakeholders: []
+    });
+  };
+
+  const currentItems = activeTab === 'objectives' ? goals : routines;
+
+  return (
+    <div className="max-w-6xl mx-auto p-6">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-violet-300 mb-4">Goals & Objectives</h1>
+        
+        {/* Tab Navigation */}
+        <div className="flex space-x-1 bg-slate-800 p-1 rounded-lg mb-6">
+          <button
+            onClick={() => setActiveTab('objectives')}
+            className={`flex-1 py-3 px-4 rounded-md font-medium transition-colors ${
+              activeTab === 'objectives' 
+                ? 'bg-violet-400 text-white' 
+                : 'text-slate-300 hover:text-white hover:bg-slate-700'
+            }`}
+          >
+            <Target className="w-5 h-5 inline mr-2" />
+            Objectives & Goals
+          </button>
+          <button
+            onClick={() => setActiveTab('routines')}
+            className={`flex-1 py-3 px-4 rounded-md font-medium transition-colors ${
+              activeTab === 'routines' 
+                ? 'bg-violet-400 text-white' 
+                : 'text-slate-300 hover:text-white hover:bg-slate-700'
+            }`}
+          >
+            <Calendar className="w-5 h-5 inline mr-2" />
+            Routines & Habits
+          </button>
+        </div>
+
+        {/* Add New Button */}
+        <button
+          onClick={() => setShowForm(true)}
+          className="bg-violet-400 text-white px-4 py-2 rounded-lg hover:bg-violet-300 transition-colors font-bold border border-violet-300"
+        >
+          <Plus className="w-4 h-4 inline mr-2" />
+          Add New {activeTab === 'objectives' ? 'Objective' : 'Routine'}
+        </button>
+      </div>
+
+      {/* Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold text-violet-300 mb-4">
+              {editingItem ? 'Edit' : 'Add New'} {activeTab === 'objectives' ? 'Objective' : 'Routine'}
+            </h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Title</label>
+                <input
+                  type="text"
+                  value={formData.title || ''}
+                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  placeholder="Enter title..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Description</label>
+                <textarea
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  placeholder="Enter description..."
+                  rows={3}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Priority</label>
+                  <select
+                    value={formData.priority || 1}
+                    onChange={(e) => setFormData({ ...formData, priority: parseInt(e.target.value) })}
+                    className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white focus:border-violet-400 focus:outline-none"
+                  >
+                    <option value={1}>High (1)</option>
+                    <option value={2}>Medium-High (2)</option>
+                    <option value={3}>Medium (3)</option>
+                    <option value={4}>Medium-Low (4)</option>
+                    <option value={5}>Low (5)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Status</label>
+                  <select
+                    value={formData.status || 'active'}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value as 'active' | 'completed' | 'paused' | 'archived' })}
+                    className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white focus:border-violet-400 focus:outline-none"
+                  >
+                    <option value="active">Active</option>
+                    <option value="paused">Paused</option>
+                    <option value="completed">Completed</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                </div>
+              </div>
+
+              {activeTab === 'objectives' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Deadline</label>
+                  <input
+                    type="date"
+                    value={formData.deadline || ''}
+                    onChange={(e) => setFormData({ ...formData, deadline: e.target.value })}
+                    className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white focus:border-violet-400 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              {activeTab === 'routines' && (
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Cadence</label>
+                  <select
+                    value={formData.cadence_time || ''}
+                    onChange={(e) => setFormData({ ...formData, cadence_time: e.target.value })}
+                    className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white focus:border-violet-400 focus:outline-none"
+                  >
+                    <option value="">Select frequency...</option>
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                    <option value="quarterly">Quarterly</option>
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Stakeholders</label>
+                <div className="space-y-2">
+                  {people.length === 0 ? (
+                    <p className="text-sm text-slate-400 italic">No people profiles available. Add people first to assign stakeholders.</p>
+                  ) : (
+                    <div className="max-h-32 overflow-y-auto space-y-1">
+                      {people.map((person) => (
+                        <label key={person.id} className="flex items-center space-x-2">
+                          <input
+                            type="checkbox"
+                            checked={(formData.stakeholders || []).includes(person.id)}
+                            onChange={(e) => {
+                              const currentStakeholders = formData.stakeholders || [];
+                              if (e.target.checked) {
+                                setFormData({ ...formData, stakeholders: [...currentStakeholders, person.id] });
+                              } else {
+                                setFormData({ ...formData, stakeholders: currentStakeholders.filter(id => id !== person.id) });
+                              }
+                            }}
+                            className="rounded border-slate-600 bg-slate-700 text-violet-400 focus:ring-violet-400 focus:ring-offset-slate-800"
+                          />
+                          <span className="text-sm text-slate-300">{person.name}</span>
+                          {person.work_function && (
+                            <span className="text-xs text-slate-400">({person.work_function})</span>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={resetForm}
+                className="px-4 py-2 border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                <X className="w-4 h-4 inline mr-2" />
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!formData.title}
+                className="px-4 py-2 bg-violet-400 text-white rounded-lg hover:bg-violet-300 disabled:opacity-50 transition-colors"
+              >
+                <Save className="w-4 h-4 inline mr-2" />
+                {editingItem ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Items List */}
+      <div className="space-y-4">
+        {currentItems.length === 0 ? (
+          <div className="text-center py-12 bg-slate-800 rounded-lg">
+            <Target className="w-16 h-16 mx-auto text-slate-600 mb-4" />
+            <p className="text-slate-400 text-lg mb-2">
+              No {activeTab === 'objectives' ? 'objectives' : 'routines'} yet
+            </p>
+            <p className="text-slate-500">
+              Start by adding your first {activeTab === 'objectives' ? 'goal or objective' : 'routine or habit'}
+            </p>
+          </div>
+        ) : (
+          currentItems.map((item) => (
+            <div key={item.id} className="bg-slate-800 border border-slate-700 rounded-lg p-6">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex-1">
+                  <div className="flex items-center space-x-3 mb-2">
+                    <h3 className="text-xl font-bold text-white">{item.title}</h3>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      item.priority <= 2 ? 'bg-red-900 text-red-200' :
+                      item.priority <= 3 ? 'bg-yellow-900 text-yellow-200' :
+                      'bg-green-900 text-green-200'
+                    }`}>
+                      Priority {item.priority}
+                    </span>
+                    <span className={`px-2 py-1 rounded text-xs font-medium ${
+                      item.status === 'active' ? 'bg-violet-900 text-violet-200' :
+                      item.status === 'completed' ? 'bg-green-900 text-green-200' :
+                      item.status === 'paused' ? 'bg-yellow-900 text-yellow-200' :
+                      'bg-slate-700 text-slate-300'
+                    }`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  {item.description && (
+                    <p className="text-slate-300 mb-3">{item.description}</p>
+                  )}
+                  <div className="flex items-center space-x-4 text-sm text-slate-400">
+                    {activeTab === 'objectives' && item.deadline && (
+                      <span>📅 Due: {new Date(item.deadline).toLocaleDateString()}</span>
+                    )}
+                    {activeTab === 'routines' && item.cadence_time && (
+                      <span>🔄 {item.cadence_time}</span>
+                    )}
+                    {item.stakeholders && item.stakeholders.length > 0 && (
+                      <span>👥 {item.stakeholders.map(id => people.find(p => p.id === id)?.name).filter(Boolean).join(', ')}</span>
+                    )}
+                    <span>Created: {new Date(item.created_at).toLocaleDateString()}</span>
+                  </div>
+                </div>
+                
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handleEdit(item)}
+                    className="p-2 text-slate-400 hover:text-violet-300 hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(item.id)}
+                    className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PeopleManagementView() {
+  const [people, setPeople] = useState<Person[]>([]);
+  const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
+  const [editingPerson, setEditingPerson] = useState<Person | null>(null);
+  const [showForm, setShowForm] = useState(false);
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [formData, setFormData] = useState<Partial<Person>>({
+    name: '',
+    work_function: '',
+    characteristics: '',
+    biases: '',
+    communication_style: '',
+    relationship_type: '',
+    profile_picture: '',
+    sentiment_summary: ''
+  });
+
+  const loadPeople = useCallback(async () => {
+    try {
+      const response = await fetch('/api/people');
+      if (response.ok) {
+        const peopleData = await response.json();
+        setPeople(peopleData);
+      }
+    } catch (error) {
+      console.error('Error loading people:', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPeople();
+  }, [loadPeople]);
+
+  const handleSave = async () => {
+    try {
+      const url = editingPerson ? `/api/people?id=${editingPerson.id}` : '/api/people';
+      const method = editingPerson ? 'PUT' : 'POST';
+
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData)
+      });
+
+      if (response.ok) {
+        await loadPeople();
+        resetForm();
+      }
+    } catch (error) {
+      console.error('Error saving person:', error);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this person?')) return;
+    
+    try {
+      const response = await fetch(`/api/people?id=${id}`, { method: 'DELETE' });
+      if (response.ok) {
+        await loadPeople();
+        setSelectedPeople(prev => {
+          const newSet = new Set(prev);
+          newSet.delete(id);
+          return newSet;
+        });
+      }
+    } catch (error) {
+      console.error('Error deleting person:', error);
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedPeople.size === 0) return;
+    
+    const confirmMessage = `Are you sure you want to delete ${selectedPeople.size} selected people? This action cannot be undone.`;
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      const deletePromises = Array.from(selectedPeople).map(id => 
+        fetch(`/api/people?id=${id}`, { method: 'DELETE' })
+      );
+      
+      await Promise.all(deletePromises);
+      await loadPeople();
+      setSelectedPeople(new Set());
+      setShowBulkDelete(false);
+    } catch (error) {
+      console.error('Error bulk deleting people:', error);
+    }
+  };
+
+  const handleEdit = (person: Person) => {
+    setEditingPerson(person);
+    setFormData({
+      name: person.name,
+      work_function: person.work_function || '',
+      characteristics: person.characteristics || '',
+      biases: person.biases || '',
+      communication_style: person.communication_style || '',
+      relationship_type: person.relationship_type || '',
+      profile_picture: person.profile_picture || '',
+      sentiment_summary: person.sentiment_summary || ''
+    });
+    setShowForm(true);
+  };
+
+  const resetForm = () => {
+    setEditingPerson(null);
+    setShowForm(false);
+    setFormData({
+      name: '',
+      work_function: '',
+      characteristics: '',
+      biases: '',
+      communication_style: '',
+      relationship_type: '',
+      profile_picture: '',
+      sentiment_summary: ''
+    });
+  };
+
+  const togglePersonSelection = (id: string) => {
+    setSelectedPeople(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(id)) {
+        newSet.delete(id);
+      } else {
+        newSet.add(id);
+      }
+      return newSet;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedPeople.size === people.length) {
+      setSelectedPeople(new Set());
+    } else {
+      setSelectedPeople(new Set(people.map(p => p.id)));
+    }
+  };
+
+  const getSentimentColor = (sentiment?: string) => {
+    if (!sentiment) return 'text-slate-400';
+    const lower = sentiment.toLowerCase();
+    if (lower.includes('positive') || lower.includes('good') || lower.includes('excellent') || lower.includes('reliable') || lower.includes('collaborative')) return 'text-green-400';
+    if (lower.includes('negative') || lower.includes('poor') || lower.includes('difficult') || lower.includes('concerning') || lower.includes('unreliable')) return 'text-red-400';
+    if (lower.includes('neutral') || lower.includes('mixed') || lower.includes('inconsistent') || lower.includes('developing')) return 'text-yellow-400';
+    return 'text-slate-400';
+  };
+
+  const generateSentimentSummary = async (personData: Partial<Person>) => {
+    try {
+      const response = await fetch('/api/people/sentiment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          personId: editingPerson?.id,
+          personData
+        })
+      });
+
+      if (response.ok) {
+        const { sentiment_summary } = await response.json();
+        setFormData({ ...formData, sentiment_summary });
+      } else {
+        console.error('Failed to generate sentiment summary');
+        setFormData({ ...formData, sentiment_summary: 'Unable to generate AI summary at this time' });
+      }
+    } catch (error) {
+      console.error('Error generating sentiment summary:', error);
+      setFormData({ ...formData, sentiment_summary: 'Error generating AI summary' });
+    }
+  };
+
+  return (
+    <div className="max-w-7xl mx-auto p-6">
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-6">
+          <h1 className="text-3xl font-bold text-violet-300">People Management</h1>
+          
+          <div className="flex items-center space-x-3">
+            {selectedPeople.size > 0 && (
+              <div className="flex items-center space-x-2">
+                <span className="text-sm text-slate-400">
+                  {selectedPeople.size} selected
+                </span>
+                <button
+                  onClick={() => setShowBulkDelete(true)}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-bold"
+                >
+                  <Trash2 className="w-4 h-4 inline mr-2" />
+                  Delete Selected
+                </button>
+              </div>
+            )}
+            
+            <button
+              onClick={() => setShowForm(true)}
+              className="bg-violet-400 text-white px-4 py-2 rounded-lg hover:bg-violet-300 transition-colors font-bold border border-violet-300"
+            >
+              <Plus className="w-4 h-4 inline mr-2" />
+              Add Person
+            </button>
+          </div>
+        </div>
+
+        {/* Bulk Selection Controls */}
+        {people.length > 0 && (
+          <div className="flex items-center space-x-4 mb-6 p-4 bg-slate-800 rounded-lg">
+            <label className="flex items-center space-x-2">
+              <input
+                type="checkbox"
+                checked={selectedPeople.size === people.length && people.length > 0}
+                onChange={toggleSelectAll}
+                className="rounded border-slate-600 bg-slate-700 text-violet-400 focus:ring-violet-400 focus:ring-offset-slate-800"
+              />
+              <span className="text-slate-300">
+                Select All ({people.length})
+              </span>
+            </label>
+            <span className="text-slate-500">•</span>
+            <span className="text-sm text-slate-400">
+              {selectedPeople.size} of {people.length} selected
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDelete && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-xl font-bold text-red-400 mb-4">
+              Confirm Bulk Delete
+            </h3>
+            <p className="text-slate-300 mb-6">
+              Are you sure you want to delete {selectedPeople.size} selected people? This action cannot be undone and will also remove them from any associated goals or routines.
+            </p>
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={() => setShowBulkDelete(false)}
+                className="px-4 py-2 border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleBulkDelete}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+              >
+                Delete {selectedPeople.size} People
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold text-violet-300 mb-4">
+              {editingPerson ? 'Edit Person' : 'Add New Person'}
+            </h3>
+            
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Name *</label>
+                  <input
+                    type="text"
+                    value={formData.name || ''}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                    placeholder="Enter full name..."
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">Position/Role</label>
+                  <input
+                    type="text"
+                    value={formData.work_function || ''}
+                    onChange={(e) => setFormData({ ...formData, work_function: e.target.value })}
+                    className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                    placeholder="e.g., Product Manager, Engineer..."
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Profile Picture URL</label>
+                <input
+                  type="url"
+                  value={formData.profile_picture || ''}
+                  onChange={(e) => setFormData({ ...formData, profile_picture: e.target.value })}
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  placeholder="https://example.com/photo.jpg"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Relationship Type</label>
+                <select
+                  value={formData.relationship_type || ''}
+                  onChange={(e) => setFormData({ ...formData, relationship_type: e.target.value })}
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white focus:border-violet-400 focus:outline-none"
+                >
+                  <option value="">Select relationship...</option>
+                  <option value="direct_report">Direct Report</option>
+                  <option value="manager">Manager</option>
+                  <option value="peer">Peer</option>
+                  <option value="stakeholder">Stakeholder</option>
+                  <option value="client">Client</option>
+                  <option value="vendor">Vendor</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Characteristics</label>
+                <textarea
+                  value={formData.characteristics || ''}
+                  onChange={(e) => setFormData({ ...formData, characteristics: e.target.value })}
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  placeholder="Key personality traits, strengths, working style..."
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Communication Style</label>
+                <textarea
+                  value={formData.communication_style || ''}
+                  onChange={(e) => setFormData({ ...formData, communication_style: e.target.value })}
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  placeholder="How they prefer to communicate, meeting styles, feedback preferences..."
+                  rows={2}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">Potential Biases & Personal Sentiments</label>
+                <textarea
+                  value={formData.biases || ''}
+                  onChange={(e) => setFormData({ ...formData, biases: e.target.value })}
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  placeholder="Known biases, blind spots, your personal feelings about working with them..."
+                  rows={2}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">AI Sentiment Summary</label>
+                <div className="p-3 border border-slate-600 rounded-lg bg-slate-700">
+                  <p className="text-sm text-slate-400 mb-2">
+                    📊 AI will analyze delivery patterns, communication history, and relationship dynamics to generate an objective sentiment summary.
+                  </p>
+                  {formData.sentiment_summary ? (
+                    <p className="text-sm text-slate-200">
+                      Current: <span className={getSentimentColor(formData.sentiment_summary)}>{formData.sentiment_summary}</span>
+                    </p>
+                  ) : (
+                    <p className="text-sm text-slate-500 italic">No AI analysis available yet</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => generateSentimentSummary(formData)}
+                    className="mt-2 text-xs bg-violet-400 text-white px-3 py-1 rounded hover:bg-violet-300 transition-colors"
+                  >
+                    Generate AI Summary
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={resetForm}
+                className="px-4 py-2 border border-slate-600 text-slate-300 rounded-lg hover:bg-slate-700 transition-colors"
+              >
+                <X className="w-4 h-4 inline mr-2" />
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!formData.name}
+                className="px-4 py-2 bg-violet-400 text-white rounded-lg hover:bg-violet-300 disabled:opacity-50 transition-colors"
+              >
+                <Save className="w-4 h-4 inline mr-2" />
+                {editingPerson ? 'Update' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* People Cards Grid */}
+      {people.length === 0 ? (
+        <div className="text-center py-16 bg-slate-800 rounded-lg">
+          <Users className="w-16 h-16 mx-auto text-slate-600 mb-4" />
+          <p className="text-slate-400 text-lg mb-2">
+            No people profiles yet
+          </p>
+          <p className="text-slate-500">
+            Start building your network by adding people you work with
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {people.map((person) => (
+            <div
+              key={person.id}
+              className={`bg-slate-800 border rounded-lg p-6 transition-all hover:shadow-lg ${
+                selectedPeople.has(person.id) 
+                  ? 'border-violet-400 bg-violet-900/20' 
+                  : 'border-slate-700 hover:border-slate-600'
+              }`}
+            >
+              {/* Card Header with Selection */}
+              <div className="flex items-start justify-between mb-4">
+                <input
+                  type="checkbox"
+                  checked={selectedPeople.has(person.id)}
+                  onChange={() => togglePersonSelection(person.id)}
+                  className="mt-1 rounded border-slate-600 bg-slate-700 text-violet-400 focus:ring-violet-400 focus:ring-offset-slate-800"
+                />
+                <div className="flex items-center space-x-2">
+                  <button
+                    onClick={() => handleEdit(person)}
+                    className="p-2 text-slate-400 hover:text-violet-300 hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(person.id)}
+                    className="p-2 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Profile Picture */}
+              <div className="flex justify-center mb-4">
+                {person.profile_picture ? (
+                  <img
+                    src={person.profile_picture}
+                    alt={person.name}
+                    className="w-16 h-16 rounded-full object-cover border-2 border-slate-600"
+                    onError={(e) => {
+                      e.currentTarget.style.display = 'none';
+                      e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                    }}
+                  />
+                ) : null}
+                <div className={`w-16 h-16 rounded-full bg-slate-700 border-2 border-slate-600 flex items-center justify-center ${person.profile_picture ? 'hidden' : ''}`}>
+                  <span className="text-2xl font-bold text-slate-400">
+                    {person.name.charAt(0).toUpperCase()}
+                  </span>
+                </div>
+              </div>
+
+              {/* Name and Position */}
+              <div className="text-center mb-4">
+                <h3 className="text-lg font-bold text-white mb-1">{person.name}</h3>
+                {person.work_function && (
+                  <p className="text-sm text-slate-400">{person.work_function}</p>
+                )}
+                {person.relationship_type && (
+                  <span className="inline-block mt-1 px-2 py-1 bg-slate-700 text-xs rounded-full text-slate-300">
+                    {person.relationship_type.replace('_', ' ')}
+                  </span>
+                )}
+              </div>
+
+              {/* AI Sentiment Summary */}
+              {person.sentiment_summary && (
+                <div className="mb-4 p-3 bg-slate-700 rounded-lg">
+                  <div className="flex items-center mb-1">
+                    <p className="text-xs font-medium text-slate-400">AI Analysis</p>
+                    <span className="ml-2 text-xs text-violet-400">📊</span>
+                  </div>
+                  <p className={`text-sm font-medium ${getSentimentColor(person.sentiment_summary)}`}>
+                    {person.sentiment_summary}
+                  </p>
+                </div>
+              )}
+
+              {/* Additional Info */}
+              <div className="space-y-2 text-xs text-slate-500">
+                {person.biases && (
+                  <div>
+                    <span className="font-medium">Notes:</span> {person.biases.substring(0, 60)}...
+                  </div>
+                )}
+                <div>
+                  <span className="font-medium">Added:</span> {new Date(person.created_at).toLocaleDateString()}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsView() {
+  const { data: session } = useSession();
+  const [geminiApiKey, setGeminiApiKey] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'success' | 'error'>('idle');
+  const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
+  const [userProfile, setUserProfile] = useState({
+    who_i_am: '',
+    who_i_want_to_be: '',
+    strengths: '',
+    weaknesses: '',
+    work_style: ''
+  });
+
+  const loadSettings = useCallback(async () => {
+    if (!session?.user?.id) return;
+    
+    try {
+      setIsLoading(true);
+      
+      // Load Gemini configuration
+      const geminiResponse = await fetch('/api/gemini/config');
+      if (geminiResponse.ok) {
+        const geminiData = await geminiResponse.json();
+        setGeminiApiKey(geminiData.configured ? '••••••••••••••••' : '');
+      }
+      
+      // Load user profile
+      const profileResponse = await fetch('/api/user/profile');
+      if (profileResponse.ok) {
+        const profileData = await profileResponse.json();
+        if (profileData) {
+          setUserProfile({
+            who_i_am: profileData.who_i_am || '',
+            who_i_want_to_be: profileData.who_i_want_to_be || '',
+            strengths: profileData.strengths || '',
+            weaknesses: profileData.weaknesses || '',
+            work_style: profileData.work_style || ''
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error loading settings:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    loadSettings();
+  }, [loadSettings]);
+
+  const saveGeminiApiKey = async () => {
+    if (!geminiApiKey || geminiApiKey.includes('•')) return;
+    
+    try {
+      setSaveStatus('saving');
+      
+      const response = await fetch('/api/gemini/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: geminiApiKey })
+      });
+
+      if (response.ok) {
+        setSaveStatus('success');
+        setGeminiApiKey('••••••••••••••••');
+        setTimeout(() => setSaveStatus('idle'), 2000);
+      } else {
+        setSaveStatus('error');
+        setTimeout(() => setSaveStatus('idle'), 3000);
+      }
+    } catch (error) {
+      console.error('Error saving Gemini API key:', error);
+      setSaveStatus('error');
+      setTimeout(() => setSaveStatus('idle'), 3000);
+    }
+  };
+
+  const testGeminiConnection = async () => {
+    if (!geminiApiKey || geminiApiKey.includes('•')) {
+      alert('Please enter a new API key to test');
+      return;
+    }
+
+    try {
+      setTestStatus('testing');
+      
+      const response = await fetch('/api/gemini/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: geminiApiKey })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          setTestStatus('success');
+          setTimeout(() => setTestStatus('idle'), 3000);
+        } else {
+          setTestStatus('error');
+          setTimeout(() => setTestStatus('idle'), 3000);
+        }
+      } else {
+        setTestStatus('error');
+        setTimeout(() => setTestStatus('idle'), 3000);
+      }
+    } catch (error) {
+      console.error('Error testing Gemini connection:', error);
+      setTestStatus('error');
+      setTimeout(() => setTestStatus('idle'), 3000);
+    }
+  };
+
+  const saveUserProfile = async () => {
+    try {
+      const response = await fetch('/api/user/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(userProfile)
+      });
+
+      if (response.ok) {
+        // Show success feedback
+        console.log('Profile saved successfully');
+      }
+    } catch (error) {
+      console.error('Error saving user profile:', error);
+    }
+  };
+
+  const resetData = async () => {
+    const confirmMessage = 'Are you sure you want to reset all data? This will delete all your standups, goals, people, and settings. This action cannot be undone.';
+    if (!confirm(confirmMessage)) return;
+
+    try {
+      const response = await fetch('/api/user/reset', { method: 'POST' });
+      if (response.ok) {
+        alert('All data has been reset successfully');
+        window.location.reload();
+      } else {
+        alert('Failed to reset data');
+      }
+    } catch (error) {
+      console.error('Error resetting data:', error);
+      alert('Error resetting data');
+    }
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-violet-300 mb-2">Settings</h1>
+        <p className="text-slate-400">Configure your Chief of Staff preferences and integrations</p>
+      </div>
+
+      {isLoading ? (
+        <div className="text-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-violet-400 mx-auto"></div>
+          <p className="mt-4 text-slate-400">Loading settings...</p>
+        </div>
+      ) : (
+        <div className="space-y-8">
+          {/* AI Configuration */}
+          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <h2 className="text-xl font-bold text-violet-300 mb-4 flex items-center">
+              <span className="mr-2">🤖</span>
+              AI Configuration
+            </h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Google Gemini API Key
+                </label>
+                <div className="flex space-x-3">
+                  <input
+                    type={geminiApiKey.includes('•') ? 'password' : 'text'}
+                    value={geminiApiKey}
+                    onChange={(e) => setGeminiApiKey(e.target.value)}
+                    placeholder="Enter your Gemini API key..."
+                    className="flex-1 p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  />
+                  <button
+                    onClick={testGeminiConnection}
+                    disabled={testStatus === 'testing' || !geminiApiKey || geminiApiKey.includes('•')}
+                    className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                      testStatus === 'success' ? 'bg-green-600 text-white' :
+                      testStatus === 'error' ? 'bg-red-600 text-white' :
+                      testStatus === 'testing' ? 'bg-violet-600 text-white' :
+                      'bg-slate-600 text-slate-300 hover:bg-slate-500'
+                    }`}
+                  >
+                    {testStatus === 'testing' ? 'Testing...' :
+                     testStatus === 'success' ? 'Valid' :
+                     testStatus === 'error' ? 'Failed' : 'Test'}
+                  </button>
+                  <button
+                    onClick={saveGeminiApiKey}
+                    disabled={saveStatus === 'saving' || !geminiApiKey || geminiApiKey.includes('•')}
+                    className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                      saveStatus === 'success' ? 'bg-green-600 text-white' :
+                      saveStatus === 'error' ? 'bg-red-600 text-white' :
+                      saveStatus === 'saving' ? 'bg-violet-600 text-white' :
+                      'bg-violet-400 text-white hover:bg-violet-300'
+                    }`}
+                  >
+                    {saveStatus === 'saving' ? 'Saving...' :
+                     saveStatus === 'success' ? 'Saved!' :
+                     saveStatus === 'error' ? 'Error' : 'Save'}
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                  Get your free API key from{' '}
+                  <a 
+                    href="https://aistudio.google.com/app/apikey" 
+                    target="_blank" 
+                    rel="noopener noreferrer"
+                    className="text-violet-400 hover:text-violet-300 underline"
+                  >
+                    Google AI Studio
+                  </a>
+                  . Required for AI analysis, checklist generation, and sentiment summaries.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* User Profile */}
+          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <h2 className="text-xl font-bold text-violet-300 mb-4 flex items-center">
+              <span className="mr-2">👤</span>
+              Personal Profile
+            </h2>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Who I Am
+                </label>
+                <textarea
+                  value={userProfile.who_i_am}
+                  onChange={(e) => setUserProfile({ ...userProfile, who_i_am: e.target.value })}
+                  placeholder="Describe your current role, responsibilities, and identity..."
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  rows={3}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Who I Want to Be
+                </label>
+                <textarea
+                  value={userProfile.who_i_want_to_be}
+                  onChange={(e) => setUserProfile({ ...userProfile, who_i_want_to_be: e.target.value })}
+                  placeholder="Describe your aspirations, career goals, and desired growth..."
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                  rows={3}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Strengths
+                  </label>
+                  <textarea
+                    value={userProfile.strengths}
+                    onChange={(e) => setUserProfile({ ...userProfile, strengths: e.target.value })}
+                    placeholder="Your key strengths and talents..."
+                    className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                    rows={3}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-300 mb-2">
+                    Areas for Growth
+                  </label>
+                  <textarea
+                    value={userProfile.weaknesses}
+                    onChange={(e) => setUserProfile({ ...userProfile, weaknesses: e.target.value })}
+                    placeholder="Areas you'd like to improve or develop..."
+                    className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:border-violet-400 focus:outline-none"
+                    rows={3}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-slate-300 mb-2">
+                  Work Style
+                </label>
+                <textarea
+                  value={userProfile.work_style}
+                  onChange={(e) => setUserProfile({ ...userProfile, work_style: e.target.value })}
+                  placeholder="How you prefer to work, communicate, and collaborate..."
+                  className="w-full p-3 border border-slate-600 rounded-lg bg-slate-700 text-white placeholder-slate-400 focus:outline-none focus:border-violet-400"
+                  rows={2}
+                />
+              </div>
+
+              <button
+                onClick={saveUserProfile}
+                className="bg-violet-400 text-white px-6 py-2 rounded-lg hover:bg-violet-300 transition-colors font-medium"
+              >
+                Save Profile
+              </button>
+            </div>
+          </div>
+
+          {/* Account Information */}
+          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <h2 className="text-xl font-bold text-violet-300 mb-4 flex items-center">
+              <span className="mr-2">ℹ️</span>
+              Account Information
+            </h2>
+            
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300">Email:</span>
+                <span className="text-white">{session?.user?.email || 'Guest Mode'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300">Name:</span>
+                <span className="text-white">{session?.user?.name || 'Guest User'}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-300">Mode:</span>
+                <span className="text-white">{session?.user ? 'Google Account' : 'Guest Mode'}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Data Management */}
+          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <h2 className="text-xl font-bold text-violet-300 mb-4 flex items-center">
+              <span className="mr-2">🗃️</span>
+              Data Management
+            </h2>
+            
+            <div className="space-y-4">
+              <div className="p-4 bg-slate-700 rounded-lg">
+                <h3 className="font-medium text-white mb-2">Reset All Data</h3>
+                <p className="text-sm text-slate-400 mb-3">
+                  This will permanently delete all your standups, goals, people profiles, and settings. This action cannot be undone.
+                </p>
+                <button
+                  onClick={resetData}
+                  className="bg-red-600 text-white px-4 py-2 rounded-lg hover:bg-red-700 transition-colors font-medium"
+                >
+                  Reset Everything
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* App Information */}
+          <div className="bg-slate-800 rounded-lg p-6 border border-slate-700">
+            <h2 className="text-xl font-bold text-violet-300 mb-4 flex items-center">
+              <span className="mr-2">📱</span>
+              About
+            </h2>
+            
+            <div className="space-y-2 text-sm text-slate-400">
+              <p><strong>Chief of Staff</strong> - AI-powered productivity and relationship management</p>
+              <p>Version: 1.0.0</p>
+              <p>Built with Next.js, TypeScript, and Google Gemini AI</p>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function Dashboard() {
@@ -514,18 +1800,10 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Other views would go here */}
-          {currentView === 'goals' && (
-            <div className="text-center py-12">
-              <p className="text-gray-600">Goals & Objectives view - Coming soon!</p>
-            </div>
-          )}
+          {/* Goals & Objectives view */}
+          {currentView === 'goals' && <GoalsObjectivesView />}
 
-          {currentView === 'people' && (
-            <div className="text-center py-12">
-              <p className="text-gray-600">People management view - Coming soon!</p>
-            </div>
-          )}
+          {currentView === 'people' && <PeopleManagementView />}
 
           {currentView === 'analytics' && (
             <div className="text-center py-12">
@@ -533,11 +1811,7 @@ export default function Dashboard() {
             </div>
           )}
 
-          {currentView === 'settings' && (
-            <div className="text-center py-12">
-              <p className="text-gray-600">Settings view - Coming soon!</p>
-            </div>
-          )}
+          {currentView === 'settings' && <SettingsView />}
         </main>
       </div>
     </div>

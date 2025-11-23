@@ -49,6 +49,8 @@ const initializeDatabase = () => {
       biases TEXT,
       communication_style TEXT,
       relationship_type TEXT,
+      profile_picture TEXT,
+      sentiment_summary TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
@@ -67,6 +69,7 @@ const initializeDatabase = () => {
       deadline DATETIME,
       cadence_time TEXT, -- 'daily', 'weekly', 'monthly', etc.
       status TEXT DEFAULT 'active', -- 'active', 'completed', 'paused', 'archived'
+      stakeholders TEXT, -- JSON array of people_profile IDs
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (user_id) REFERENCES users(id)
@@ -204,5 +207,25 @@ const initializeDatabase = () => {
 
 // Initialize database on import
 initializeDatabase();
+
+// Add stakeholders column if it doesn't exist (for existing databases)
+try {
+  db.exec(`ALTER TABLE goals ADD COLUMN stakeholders TEXT`);
+} catch {
+  // Column already exists or other error - ignore
+}
+
+// Add new people profile columns if they don't exist
+try {
+  db.exec(`ALTER TABLE people_profiles ADD COLUMN profile_picture TEXT`);
+} catch {
+  // Column already exists or other error - ignore
+}
+
+try {
+  db.exec(`ALTER TABLE people_profiles ADD COLUMN sentiment_summary TEXT`);
+} catch {
+  // Column already exists or other error - ignore
+}
 
 export default db;

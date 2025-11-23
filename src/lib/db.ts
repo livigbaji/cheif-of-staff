@@ -236,4 +236,88 @@ try {
   // Column already exists or other error - ignore
 }
 
+// Productivity metrics tracking tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS daily_metrics (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    date DATE NOT NULL,
+    focus_score INTEGER DEFAULT 0, -- 0-100 percentage
+    completion_rate INTEGER DEFAULT 0, -- 0-100 percentage
+    proactiveness_score INTEGER DEFAULT 0, -- 0-100 percentage
+    alignment_score INTEGER DEFAULT 0, -- 0-100 percentage
+    tasks_planned INTEGER DEFAULT 0,
+    tasks_completed INTEGER DEFAULT 0,
+    blockers_encountered INTEGER DEFAULT 0,
+    blockers_resolved INTEGER DEFAULT 0,
+    distractions_count INTEGER DEFAULT 0,
+    focus_time_minutes INTEGER DEFAULT 0,
+    total_work_minutes INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE(user_id, date)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS task_tracking (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    task_title TEXT NOT NULL,
+    task_description TEXT,
+    estimated_minutes INTEGER,
+    actual_minutes INTEGER,
+    priority_level INTEGER, -- 1-5
+    status TEXT DEFAULT 'pending', -- pending, in_progress, completed, blocked
+    started_at DATETIME,
+    completed_at DATETIME,
+    objective_id TEXT, -- Link to goals table
+    is_aligned_to_objective BOOLEAN DEFAULT FALSE,
+    blocker_description TEXT,
+    date DATE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS focus_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    task_id TEXT,
+    session_start DATETIME NOT NULL,
+    session_end DATETIME,
+    planned_duration_minutes INTEGER,
+    actual_duration_minutes INTEGER,
+    interruptions_count INTEGER DEFAULT 0,
+    quality_rating INTEGER, -- 1-5 self-reported focus quality
+    date DATE NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (task_id) REFERENCES task_tracking(id)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS objective_progress (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    objective_id TEXT NOT NULL,
+    date DATE NOT NULL,
+    progress_percentage INTEGER DEFAULT 0, -- 0-100
+    tasks_completed_today INTEGER DEFAULT 0,
+    total_tasks_for_objective INTEGER DEFAULT 0,
+    estimated_completion_date DATE,
+    is_on_track BOOLEAN DEFAULT TRUE,
+    notes TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (objective_id) REFERENCES goals(id),
+    UNIQUE(user_id, objective_id, date)
+  )
+`);
+
 export default db;

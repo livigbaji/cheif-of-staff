@@ -2,8 +2,19 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSession, signIn, signOut } from 'next-auth/react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Mic, MicOff, Settings, Users, Target, BarChart3, FileText, Plus, Edit2, Trash2, Save, X, Calendar } from 'lucide-react';
 import { StandupQuestion } from '../types/database';
+import {
+  fetchDailyMetrics,
+  fetchObjectives,
+  fetchTasks,
+  fetchFocusSessions,
+  calculateMetrics,
+  updateDailyMetrics,
+  createObjective,
+  updateObjective
+} from '../lib/analytics';
 
 interface StandupQuestionWithAnalysis {
   id: string;
@@ -966,6 +977,8 @@ function SettingsView() {
   const [newQuestion, setNewQuestion] = useState('');
   const [editingQuestionIndex, setEditingQuestionIndex] = useState<number | null>(null);
   const [editingQuestionText, setEditingQuestionText] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [questionToDelete, setQuestionToDelete] = useState<number | null>(null);
 
   const loadSettings = useCallback(async () => {
     if (!session?.user?.id) return;
@@ -1006,8 +1019,8 @@ function SettingsView() {
           );
           setStandupQuestions(questionTexts);
         } else if (questionsData.success && !questionsData.isCustom) {
-          // If no custom questions exist, save the current defaults as user's questions
-          setTimeout(() => saveStandupQuestions(), 100);
+          // User sees the default questions that are already pre-filled
+          console.log('Using default questions in settings');
         }
       }
     } catch (error) {
@@ -1015,7 +1028,7 @@ function SettingsView() {
     } finally {
       setIsLoading(false);
     }
-  }, [session?.user?.id, saveStandupQuestions]);
+  }, [session?.user?.id]);
 
   useEffect(() => {
     loadSettings();
@@ -1166,11 +1179,23 @@ function SettingsView() {
   };
 
   const deleteStandupQuestion = (index: number) => {
-    if (!confirm('Are you sure you want to delete this question?')) return;
-    
-    const updatedQuestions = standupQuestions.filter((_, i) => i !== index);
-    setStandupQuestions(updatedQuestions);
-    saveStandupQuestions();
+    setQuestionToDelete(index);
+    setShowDeleteModal(true);
+  };
+
+  const confirmDeleteQuestion = () => {
+    if (questionToDelete !== null) {
+      const updatedQuestions = standupQuestions.filter((_, i) => i !== questionToDelete);
+      setStandupQuestions(updatedQuestions);
+      saveStandupQuestions();
+    }
+    setShowDeleteModal(false);
+    setQuestionToDelete(null);
+  };
+
+  const cancelDeleteQuestion = () => {
+    setShowDeleteModal(false);
+    setQuestionToDelete(null);
   };
 
   const resetToDefaultQuestions = () => {
@@ -1514,6 +1539,32 @@ function SettingsView() {
               <p>Built with Next.js, TypeScript, and Google Gemini AI</p>
             </div>
           </div>
+
+          {/* Delete Confirmation Modal */}
+          {showDeleteModal && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-slate-800 rounded-lg p-6 border border-slate-700 max-w-md w-full mx-4">
+                <h3 className="text-lg font-bold text-slate-100 mb-4">Delete Question</h3>
+                <p className="text-slate-300 mb-6">
+                  Are you sure you want to delete this question? This action cannot be undone.
+                </p>
+                <div className="flex space-x-4">
+                  <button
+                    onClick={cancelDeleteQuestion}
+                    className="flex-1 px-4 py-2 bg-slate-700 text-slate-300 rounded-lg hover:bg-slate-600 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmDeleteQuestion}
+                    className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1522,12 +1573,24 @@ function SettingsView() {
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   
   // App works without authentication, but Google login unlocks integrations
   const hasGoogleIntegration = !!session?.user;
   const currentUser = session?.user || { id: 'guest', name: 'Guest User', email: 'guest@localhost' };
   
-  const [currentView, setCurrentView] = useState('standup');
+  const [currentView, setCurrentView] = useState(() => {
+    // Get initial view from URL or default to standup
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const view = urlParams.get('view');
+      if (view && ['standup', 'checklist', 'goals', 'people', 'analytics', 'settings'].includes(view)) {
+        return view;
+      }
+    }
+    return 'standup';
+  });
   const [geminiConfigured, setGeminiConfigured] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [isListening, setIsListening] = useState(false);
@@ -1535,6 +1598,21 @@ export default function Dashboard() {
   const [standupQuestions, setStandupQuestions] = useState<StandupQuestionWithAnalysis[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [mode, setMode] = useState<'cadence' | 'waterfall'>('cadence');
+
+  // Analytics state
+  const [analyticsData, setAnalyticsData] = useState({
+    current: {
+      focus_score: 0,
+      completion_rate: 0,
+      proactiveness_score: 0,
+      alignment_score: 0
+    },
+    weekly: [],
+    calendar: [],
+    objectives: [],
+    isLoading: true,
+    error: null
+  });
 
   const checkGeminiConfiguration = useCallback(async () => {
     try {
@@ -1590,6 +1668,83 @@ export default function Dashboard() {
     }
   }, []);
 
+  const loadAnalyticsData = useCallback(async () => {
+    if (isGuestMode) {
+      // Use mock data for guests
+      setAnalyticsData({
+        current: {
+          focus_score: 87,
+          completion_rate: 92,
+          proactiveness_score: 75,
+          alignment_score: 94
+        },
+        weekly: [
+          { date: '2024-11-17', completion: 85 },
+          { date: '2024-11-18', completion: 90 },
+          { date: '2024-11-19', completion: 78 },
+          { date: '2024-11-20', completion: 95 },
+          { date: '2024-11-21', completion: 88 },
+          { date: '2024-11-22', completion: 92 },
+          { date: '2024-11-23', completion: 89 }
+        ],
+        calendar: Array.from({ length: 28 }, (_, i) => {
+          const date = new Date();
+          date.setDate(date.getDate() - (27 - i));
+          return {
+            date: date.toISOString().split('T')[0],
+            completion: Math.random() * 100,
+            focus: Math.random() * 100,
+            proactiveness: Math.random() * 100
+          };
+        }),
+        objectives: [
+          { id: '1', title: 'Complete Product Roadmap', progress_percentage: 75, target_date: '2024-12-15', status: 'active' },
+          { id: '2', title: 'Improve Team Communication', progress_percentage: 60, target_date: '2024-11-30', status: 'active' },
+          { id: '3', title: 'Launch Marketing Campaign', progress_percentage: 90, target_date: '2024-12-01', status: 'active' }
+        ],
+        isLoading: false,
+        error: null
+      });
+      return;
+    }
+
+    try {
+      setAnalyticsData(prev => ({ ...prev, isLoading: true, error: null }));
+      
+      // Fetch all analytics data in parallel
+      const [metricsResponse, objectivesResponse, tasksResponse, focusResponse] = await Promise.all([
+        fetchDailyMetrics(7),
+        fetchObjectives(),
+        fetchTasks(),
+        fetchFocusSessions()
+      ]);
+
+      // Calculate derived metrics
+      const calculatedMetrics = calculateMetrics(
+        metricsResponse.metrics,
+        tasksResponse,
+        focusResponse
+      );
+
+      setAnalyticsData({
+        current: calculatedMetrics.current,
+        weekly: calculatedMetrics.weekly,
+        calendar: calculatedMetrics.calendar,
+        objectives: objectivesResponse,
+        isLoading: false,
+        error: null
+      });
+
+    } catch (error) {
+      console.error('Error loading analytics data:', error);
+      setAnalyticsData(prev => ({
+        ...prev,
+        isLoading: false,
+        error: 'Failed to load analytics data'
+      }));
+    }
+  }, [isGuestMode]);
+
   useEffect(() => {
     // Always load standup questions first, regardless of session status
     setTimeout(() => {
@@ -1602,7 +1757,26 @@ export default function Dashboard() {
         checkGeminiConfiguration();
       }, 0);
     }
-  }, [loadStandupQuestions, session, checkGeminiConfiguration]);
+    
+    // Load analytics data
+    setTimeout(() => {
+      loadAnalyticsData();
+    }, 0);
+  }, [loadStandupQuestions, session, checkGeminiConfiguration, loadAnalyticsData]);
+
+  // Sync URL with current view
+  useEffect(() => {
+    const view = searchParams.get('view');
+    if (view && ['standup', 'checklist', 'goals', 'people', 'analytics', 'settings'].includes(view)) {
+      setTimeout(() => setCurrentView(view), 0);
+    }
+  }, [searchParams]);
+
+  // Function to change view and update URL
+  const changeView = (view: string) => {
+    setCurrentView(view);
+    router.push(`/?view=${view}`, { scroll: false });
+  };
 
   const configureGemini = async () => {
     try {
@@ -1740,6 +1914,7 @@ export default function Dashboard() {
       const checklistData = await checklistResponse.json();
       setChecklist(checklistData.items);
       setCurrentView('checklist');
+      router.push('/?view=checklist', { scroll: false });
     } catch (error) {
       console.error('Error generating checklist:', error);
     }
@@ -1837,7 +2012,7 @@ export default function Dashboard() {
             <ul className="space-y-2">
               <li>
                 <button
-                  onClick={() => setCurrentView('standup')}
+                  onClick={() => changeView('standup')}
                   className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
                     currentView === 'standup' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
@@ -1848,7 +2023,7 @@ export default function Dashboard() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentView('checklist')}
+                  onClick={() => changeView('checklist')}
                   className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
                     currentView === 'checklist' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
@@ -1859,7 +2034,7 @@ export default function Dashboard() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentView('goals')}
+                  onClick={() => changeView('goals')}
                   className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
                     currentView === 'goals' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
@@ -1870,7 +2045,7 @@ export default function Dashboard() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentView('people')}
+                  onClick={() => changeView('people')}
                   className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
                     currentView === 'people' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
@@ -1881,7 +2056,7 @@ export default function Dashboard() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentView('analytics')}
+                  onClick={() => changeView('analytics')}
                   className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
                     currentView === 'analytics' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
@@ -1892,7 +2067,7 @@ export default function Dashboard() {
               </li>
               <li>
                 <button
-                  onClick={() => setCurrentView('settings')}
+                  onClick={() => changeView('settings')}
                   className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
                     currentView === 'settings' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
@@ -2011,26 +2186,26 @@ export default function Dashboard() {
 
           {currentView === 'checklist' && (
             <div className="max-w-4xl mx-auto">
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <h2 className="text-2xl font-bold mb-6">Today&apos;s Checklist</h2>
+              <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                <h2 className="text-2xl font-bold mb-6 text-violet-300">Today's Checklist</h2>
                 {checklist.length === 0 ? (
-                  <p className="text-gray-600">Complete your standup to generate checklist items.</p>
+                  <p className="text-slate-400">Complete your standup to generate checklist items.</p>
                 ) : (
                   <div className="space-y-4">
                     {checklist.map((item: ChecklistItem, index) => (
-                      <div key={index} className="p-4 border rounded-lg">
+                      <div key={index} className="p-4 border border-slate-600 rounded-lg bg-slate-700">
                         <div className="flex items-center justify-between mb-2">
-                          <h3 className="font-medium">{item.title}</h3>
-                          <span className={`px-2 py-1 rounded text-xs ${
-                            (item.priority || 5) <= 2 ? 'bg-red-100 text-red-700' :
-                            (item.priority || 5) <= 3 ? 'bg-yellow-100 text-yellow-700' :
-                            'bg-green-100 text-green-700'
+                          <h3 className="font-medium text-slate-100">{item.title}</h3>
+                          <span className={`px-2 py-1 rounded text-xs font-medium ${
+                            (item.priority || 5) <= 2 ? 'bg-red-900 text-red-300 border border-red-700' :
+                            (item.priority || 5) <= 3 ? 'bg-yellow-900 text-yellow-300 border border-yellow-700' :
+                            'bg-green-900 text-green-300 border border-green-700'
                           }`}>
                             Priority {item.priority || 'N/A'}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-600 mb-2">{item.description}</p>
-                        <div className="flex items-center justify-between text-xs text-gray-500">
+                        <p className="text-sm text-slate-300 mb-2">{item.description}</p>
+                        <div className="flex items-center justify-between text-xs text-slate-400">
                           <span>Est. {item.estimatedTimeMinutes || 'N/A'} min</span>
                           <span>Goal Aligned: {item.goalAlignment?.join(', ') || 'None'}</span>
                         </div>
@@ -2048,8 +2223,328 @@ export default function Dashboard() {
           {currentView === 'people' && <PeopleManagementView />}
 
           {currentView === 'analytics' && (
-            <div className="text-center py-12">
-              <p className="text-gray-600">Analytics view - Coming soon!</p>
+            <div className="max-w-7xl mx-auto">
+              {analyticsData.isLoading ? (
+                <div className="flex justify-center items-center h-64">
+                  <div className="text-slate-400">Loading analytics data...</div>
+                </div>
+              ) : analyticsData.error ? (
+                <div className="bg-red-900/20 border border-red-700 rounded-lg p-6 mb-8">
+                  <div className="text-red-300">{analyticsData.error}</div>
+                </div>
+              ) : (
+                <>
+                  {/* Key Metrics Cards - Top Row */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                    {/* Today's Focus Score */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-violet-300">Focus Score</h3>
+                        <span className="text-2xl">🎯</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-3xl font-bold text-slate-100">{Math.round(analyticsData.current.focus_score)}%</div>
+                        <div className="text-sm text-slate-400">Time on planned tasks</div>
+                        <div className="w-full bg-slate-700 rounded-full h-2">
+                          <div className="bg-violet-400 h-2 rounded-full" style={{width: `${Math.round(analyticsData.current.focus_score)}%`}}></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Completion Rate */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-violet-300">Completion</h3>
+                        <span className="text-2xl">✅</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-3xl font-bold text-slate-100">{Math.round(analyticsData.current.completion_rate)}%</div>
+                        <div className="text-sm text-slate-400">Tasks completed today</div>
+                        <div className="w-full bg-slate-700 rounded-full h-2">
+                          <div className="bg-green-400 h-2 rounded-full" style={{width: `${Math.round(analyticsData.current.completion_rate)}%`}}></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Proactiveness Score */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-violet-300">Proactiveness</h3>
+                        <span className="text-2xl">⚡</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-3xl font-bold text-slate-100">{Math.round(analyticsData.current.proactiveness_score)}%</div>
+                        <div className="text-sm text-slate-400">Blockers resolved today</div>
+                        <div className="w-full bg-slate-700 rounded-full h-2">
+                          <div className="bg-orange-400 h-2 rounded-full" style={{width: `${Math.round(analyticsData.current.proactiveness_score)}%`}}></div>
+                        </div>
+                    </div>
+
+                    {/* Objective Alignment */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-semibold text-violet-300">Alignment</h3>
+                        <span className="text-2xl">🎯</span>
+                      </div>
+                      <div className="space-y-2">
+                        <div className="text-3xl font-bold text-slate-100">{Math.round(analyticsData.current.alignment_score)}%</div>
+                        <div className="text-sm text-slate-400">Tasks aligned to objectives</div>
+                        <div className="w-full bg-slate-700 rounded-full h-2">
+                          <div className="bg-blue-400 h-2 rounded-full" style={{width: `${Math.round(analyticsData.current.alignment_score)}%`}}></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Performance Visualizations - Middle Section */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+                    {/* Weekly Completion Trend */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <h3 className="text-xl font-bold text-violet-300 mb-6">Weekly Completion Trend</h3>
+                      <div className="space-y-4">
+                        {analyticsData.weekly.map((dayData, index) => {
+                          const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                          const dayName = dayNames[new Date(dayData.date).getDay()];
+                          const completion = Math.round(dayData.completion);
+                          return (
+                            <div key={dayData.date} className="flex items-center space-x-4">
+                              <div className="w-12 text-slate-400 text-sm">{dayName}</div>
+                              <div className="flex-1 bg-slate-700 rounded-full h-3">
+                                <div 
+                                  className="bg-gradient-to-r from-violet-400 to-violet-500 h-3 rounded-full"
+                                  style={{width: `${completion}%`}}
+                                ></div>
+                              </div>
+                              <div className="w-12 text-slate-300 text-sm font-medium">{completion}%</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Apple Health-Style Calendar Heatmap */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <h3 className="text-xl font-bold text-violet-300 mb-6">Performance Heatmap</h3>
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-7 gap-2">
+                          {analyticsData.calendar.map((dayData, i) => {
+                            const intensity = dayData.completion / 100;
+                            const focusScore = dayData.focus / 100;
+                            const proactiveness = dayData.proactiveness / 100;
+                            return (
+                              <div 
+                                key={dayData.date} 
+                                className={`relative w-8 h-8 rounded-lg border-2 ${
+                                  intensity > 0.7 ? 'bg-green-400 border-green-300' :
+                                  intensity > 0.4 ? 'bg-green-600 border-green-500' :
+                                  intensity > 0.2 ? 'bg-green-800 border-green-700' :
+                                  'bg-slate-700 border-slate-600'
+                                }`}
+                              >
+                                {focusScore > 0.8 && (
+                                  <div className="absolute inset-1 border-2 border-violet-400 rounded-full"></div>
+                                )}
+                                {proactiveness > 0.7 && (
+                                  <div className="absolute top-0 right-0 w-2 h-2 bg-orange-400 rounded-full"></div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <div className="flex items-center justify-between text-xs text-slate-400">
+                          <span>4 weeks ago</span>
+                          <div className="flex items-center space-x-4">
+                            <div className="flex items-center space-x-1">
+                              <div className="w-3 h-3 bg-green-400 rounded-sm"></div>
+                              <span>High completion</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <div className="w-3 h-3 border-2 border-violet-400 rounded-full"></div>
+                              <span>Good focus</span>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <div className="w-2 h-2 bg-orange-400 rounded-full"></div>
+                              <span>Proactive</span>
+                            </div>
+                          </div>
+                          <span>Today</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actionable Insights - Bottom Section */}
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    {/* Objective Progress Tracker */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <h3 className="text-xl font-bold text-violet-300 mb-6">Objective Progress</h3>
+                      <div className="space-y-4">
+                        {analyticsData.objectives.map((objective) => (
+                          <div key={objective.id} className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-slate-200 font-medium">{objective.title}</span>
+                              <span className={`text-xs px-2 py-1 rounded ${
+                                new Date(objective.target_date) < new Date(Date.now() + 7*24*60*60*1000) 
+                                  ? 'bg-red-900 text-red-300' : 'bg-slate-700 text-slate-400'
+                              }`}>
+                                {new Date(objective.target_date).toLocaleDateString()}
+                              </span>
+                            </div>
+                            <div className="w-full bg-slate-700 rounded-full h-2">
+                              <div 
+                                className={`h-2 rounded-full ${
+                                  objective.progress_percentage > 80 ? 'bg-green-400' :
+                                  objective.progress_percentage > 50 ? 'bg-yellow-400' : 'bg-red-400'
+                                }`}
+                                style={{width: `${objective.progress_percentage}%`}}
+                              ></div>
+                            </div>
+                            <div className="text-sm text-slate-400">{objective.progress_percentage}% complete</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                {/* AI Insights Panel */}
+                <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                  <h3 className="text-xl font-bold text-violet-300 mb-6">AI Insights</h3>
+                  <div className="space-y-4">
+                    <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
+                      <div className="flex items-start space-x-3">
+                        <span className="text-lg">🧠</span>
+                        <div>
+                          <h4 className="text-slate-200 font-medium">Today&apos;s Pattern</h4>
+                          <p className="text-sm text-slate-400 mt-1">
+                            You&apos;re 23% more productive in the mornings. Consider scheduling high-priority tasks before 11 AM.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
+                      <div className="flex items-start space-x-3">
+                        <span className="text-lg">🚧</span>
+                        <div>
+                          <h4 className="text-slate-200 font-medium">Blockers Alert</h4>
+                          <p className="text-sm text-slate-400 mt-1">
+                            &quot;Waiting for feedback&quot; appears 3x this week. Consider setting up async check-ins.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
+                      <div className="flex items-start space-x-3">
+                        <span className="text-lg">💡</span>
+                        <div>
+                          <h4 className="text-slate-200 font-medium">Optimization</h4>
+                          <p className="text-sm text-slate-400 mt-1">
+                            Break down &quot;Team Onboarding&quot; into smaller 25-min tasks for better completion rate.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                    </div>
+
+                    <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
+                      <div className="flex items-start space-x-3">
+                        <span className="text-lg">💡</span>
+                        <div>
+                          <h4 className="text-slate-200 font-medium">Optimization</h4>
+                          <p className="text-sm text-slate-400 mt-1">
+                            Break down large tasks into smaller 25-min chunks for better completion rate.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                    {/* AI Insights Panel */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <h3 className="text-xl font-bold text-violet-300 mb-6">AI Insights</h3>
+                      <div className="space-y-4">
+                        <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
+                          <div className="flex items-start space-x-3">
+                            <span className="text-lg">🧠</span>
+                            <div>
+                              <h4 className="text-slate-200 font-medium">Today&apos;s Pattern</h4>
+                              <p className="text-sm text-slate-400 mt-1">
+                                You&apos;re 23% more productive in the mornings. Consider scheduling high-priority tasks before 11 AM.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
+                          <div className="flex items-start space-x-3">
+                            <span className="text-lg">🚧</span>
+                            <div>
+                              <h4 className="text-slate-200 font-medium">Blockers Alert</h4>
+                              <p className="text-sm text-slate-400 mt-1">
+                                &quot;Waiting for feedback&quot; appears 3x this week. Consider setting up async check-ins.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-700 rounded-lg border border-slate-600">
+                          <div className="flex items-start space-x-3">
+                            <span className="text-lg">💡</span>
+                            <div>
+                              <h4 className="text-slate-200 font-medium">Optimization</h4>
+                              <p className="text-sm text-slate-400 mt-1">
+                                Break down large tasks into smaller 25-min chunks for better completion rate.
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Quick Actions Panel */}
+                    <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                      <h3 className="text-xl font-bold text-violet-300 mb-6">Quick Actions</h3>
+                      <div className="space-y-4">
+                        {/* Action Buttons */}
+                        <button 
+                          onClick={() => changeView('standup')}
+                          className="w-full bg-violet-900 text-violet-300 px-4 py-3 rounded-lg border border-violet-500 hover:bg-violet-800 font-medium"
+                        >
+                          🏃‍♂️ Start Daily Standup
+                        </button>
+
+                        <button className="w-full bg-slate-700 text-slate-300 px-4 py-3 rounded-lg border border-slate-600 hover:bg-slate-600 font-medium">
+                          ⏱️ Start Focus Session
+                        </button>
+
+                        <button className="w-full bg-slate-700 text-slate-300 px-4 py-3 rounded-lg border border-slate-600 hover:bg-slate-600 font-medium">
+                          📞 Request Check-in
+                        </button>
+
+                        {/* Real-time Elements */}
+                        <div className="pt-4 border-t border-slate-600 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 text-sm">Current Task Timer</span>
+                            <span className="text-violet-300 font-mono">25:34</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 text-sm">Next Check-in</span>
+                            <span className="text-orange-300 font-mono">2h 15m</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-slate-400 text-sm">Focus Streak</span>
+                            <span className="text-green-300 font-mono">🔥 4 days</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

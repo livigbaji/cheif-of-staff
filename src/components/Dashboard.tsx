@@ -69,7 +69,10 @@ export default function Dashboard() {
 
   useEffect(() => {
     if (session) {
-      checkGeminiConfiguration();
+      // Use setTimeout to avoid synchronous setState in effect
+      setTimeout(() => {
+        checkGeminiConfiguration();
+      }, 0);
     }
   }, [session, checkGeminiConfiguration]);
 
@@ -215,16 +218,16 @@ export default function Dashboard() {
   };
 
   if (status === 'loading') {
-    return <div className="flex items-center justify-center min-h-screen">Loading...</div>;
+    return <div className="flex items-center justify-center min-h-screen text-violet-300 font-bold" style={{ backgroundColor: '#141414' }}>Loading...</div>;
   }
 
   // Always show main interface in guest mode for non-authenticated users
   if (!geminiConfigured && !isGuestMode && hasGoogleIntegration) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="bg-white p-8 rounded-lg shadow-lg max-w-md w-full">
-          <h2 className="text-2xl font-bold mb-4">Configure Gemini API</h2>
-          <p className="text-gray-600 mb-4">
+      <div className="flex items-center justify-center min-h-screen" style={{ backgroundColor: '#141414' }}>
+        <div className="bg-slate-800 p-8 rounded-lg shadow-lg max-w-md w-full border border-slate-700">
+          <h2 className="text-2xl font-bold mb-4 text-violet-300">Configure Gemini API</h2>
+          <p className="text-slate-300 mb-4">
             Please enter your Gemini API key to enable AI features for your account.
           </p>
           <input
@@ -232,21 +235,21 @@ export default function Dashboard() {
             placeholder="Enter Gemini API key"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            className="w-full p-3 border rounded-lg mb-4"
+            className="w-full p-3 border border-slate-600 rounded-lg mb-4 bg-slate-700 text-slate-200 placeholder-slate-400 focus:border-violet-400 focus:outline-none"
           />
           <button
             onClick={configureGemini}
-            className="w-full bg-blue-600 text-white p-3 rounded-lg hover:bg-blue-700 mb-3"
+            className="w-full bg-violet-400 text-white p-3 rounded-lg hover:bg-violet-300 mb-3 font-bold border border-violet-300 transition-colors"
           >
             Save API Key
           </button>
           <button
             onClick={() => setIsGuestMode(true)}
-            className="w-full bg-gray-200 text-gray-700 p-3 rounded-lg hover:bg-gray-300"
+            className="w-full bg-slate-700 text-slate-300 p-3 rounded-lg hover:bg-slate-600 border border-slate-600 font-bold transition-colors"
           >
             Continue as Guest
           </button>
-          <p className="text-xs text-gray-500 mt-2">
+          <p className="text-xs text-slate-400 mt-2">
             Guest mode: You&apos;ll need to enter your API key for each AI analysis.
           </p>
         </div>
@@ -255,25 +258,25 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen" style={{ backgroundColor: '#141414' }}>
       {/* Header */}
-      <header className="bg-white shadow-sm border-b">
+      <header className="bg-slate-800 shadow-sm border-b border-slate-700">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
-            <h1 className="text-xl font-semibold">Chief of Staff</h1>
+            <h1 className="text-xl font-bold text-violet-300">Chief of Staff</h1>
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">{currentUser.name}</span>
+              <span className="text-sm text-slate-300">{currentUser.name}</span>
               {hasGoogleIntegration ? (
                 <button
                   onClick={() => signOut()}
-                  className="text-sm text-gray-600 hover:text-gray-900"
+                  className="text-sm text-slate-300 hover:text-violet-300 transition-colors"
                 >
                   Sign out
                 </button>
               ) : (
                 <button
                   onClick={() => signIn('google')}
-                  className="text-sm bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+                  className="text-sm bg-violet-400 text-white px-3 py-1 rounded hover:bg-violet-300 font-bold transition-colors"
                 >
                   Connect Google
                 </button>
@@ -285,21 +288,21 @@ export default function Dashboard() {
 
       <div className="flex">
         {/* Sidebar */}
-        <nav className="w-64 bg-white shadow-sm min-h-screen">
+        <nav className="w-64 bg-slate-800 shadow-sm min-h-screen border-r border-slate-700">
           <div className="p-4">
             {/* Integration Status */}
-            <div className="mb-6 p-3 bg-gray-50 rounded-lg">
-              <h3 className="text-sm font-medium text-gray-900 mb-2">Integrations</h3>
+            <div className="mb-6 p-3 bg-slate-700 rounded-lg border border-slate-600">
+              <h3 className="text-sm font-bold text-slate-100 mb-2">Integrations</h3>
               <div className="space-y-1 text-xs">
                 <div className="flex items-center justify-between">
-                  <span>Google APIs</span>
-                  <span className={`px-2 py-1 rounded ${hasGoogleIntegration ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <span className="text-slate-300">Google APIs</span>
+                  <span className={`px-2 py-1 rounded font-bold ${hasGoogleIntegration ? 'bg-violet-900 text-violet-300 border border-violet-500' : 'bg-slate-600 text-slate-400'}`}>
                     {hasGoogleIntegration ? 'Connected' : 'Available'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>Slack</span>
-                  <span className="px-2 py-1 rounded bg-gray-100 text-gray-500">Available</span>
+                  <span className="text-slate-300">Slack</span>
+                  <span className="px-2 py-1 rounded bg-slate-600 text-slate-400 font-bold">Available</span>
                 </div>
               </div>
             </div>
@@ -307,8 +310,8 @@ export default function Dashboard() {
               <li>
                 <button
                   onClick={() => setCurrentView('standup')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                    currentView === 'standup' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                    currentView === 'standup' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
                 >
                   <Mic className="w-5 h-5 mr-3" />
@@ -318,8 +321,8 @@ export default function Dashboard() {
               <li>
                 <button
                   onClick={() => setCurrentView('checklist')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                    currentView === 'checklist' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                    currentView === 'checklist' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
                 >
                   <FileText className="w-5 h-5 mr-3" />
@@ -329,8 +332,8 @@ export default function Dashboard() {
               <li>
                 <button
                   onClick={() => setCurrentView('goals')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                    currentView === 'goals' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                    currentView === 'goals' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
                 >
                   <Target className="w-5 h-5 mr-3" />
@@ -340,8 +343,8 @@ export default function Dashboard() {
               <li>
                 <button
                   onClick={() => setCurrentView('people')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                    currentView === 'people' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                    currentView === 'people' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
                 >
                   <Users className="w-5 h-5 mr-3" />
@@ -351,8 +354,8 @@ export default function Dashboard() {
               <li>
                 <button
                   onClick={() => setCurrentView('analytics')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                    currentView === 'analytics' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                    currentView === 'analytics' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
                 >
                   <BarChart3 className="w-5 h-5 mr-3" />
@@ -362,8 +365,8 @@ export default function Dashboard() {
               <li>
                 <button
                   onClick={() => setCurrentView('settings')}
-                  className={`w-full flex items-center px-3 py-2 rounded-lg ${
-                    currentView === 'settings' ? 'bg-blue-100 text-blue-700' : 'text-gray-600 hover:bg-gray-100'
+                  className={`w-full flex items-center px-3 py-2 rounded-lg transition-colors ${
+                    currentView === 'settings' ? 'bg-violet-900 text-violet-300 border border-violet-500 font-bold' : 'text-slate-300 hover:bg-slate-700'
                   }`}
                 >
                   <Settings className="w-5 h-5 mr-3" />
@@ -375,27 +378,27 @@ export default function Dashboard() {
         </nav>
 
         {/* Main Content */}
-        <main className="flex-1 p-8">
+        <main className="flex-1 p-8" style={{ backgroundColor: '#141414' }}>
           {currentView === 'standup' && (
             <div className="max-w-4xl mx-auto">
-              <div className="bg-white rounded-lg shadow-sm p-6">
-                <h2 className="text-2xl font-bold mb-6">Daily Standup</h2>
+              <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
+                <h2 className="text-2xl font-bold mb-6 text-violet-300">Daily Standup</h2>
                 
                 <div className="mb-6">
-                  <label className="block text-sm font-medium mb-2">Mode:</label>
+                  <label className="block text-sm font-bold mb-2 text-slate-300">Mode:</label>
                   <div className="flex space-x-4">
                     <button
                       onClick={() => setMode('cadence')}
-                      className={`px-4 py-2 rounded-lg ${
-                        mode === 'cadence' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                      className={`px-4 py-2 rounded-lg font-bold transition-colors ${
+                        mode === 'cadence' ? 'bg-violet-400 text-white border border-violet-300' : 'bg-slate-700 text-slate-300 border border-slate-600 hover:bg-slate-600'
                       }`}
                     >
                       Cadence Mode
                     </button>
                     <button
                       onClick={() => setMode('waterfall')}
-                      className={`px-4 py-2 rounded-lg ${
-                        mode === 'waterfall' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600'
+                      className={`px-4 py-2 rounded-lg font-bold transition-colors ${
+                        mode === 'waterfall' ? 'bg-violet-400 text-white border border-violet-300' : 'bg-slate-700 text-slate-300 border border-slate-600 hover:bg-slate-600'
                       }`}
                     >
                       Waterfall Mode
@@ -404,8 +407,8 @@ export default function Dashboard() {
                 </div>
 
                 {standupQuestions.map((q, index) => (
-                  <div key={q.id} className="mb-6 p-4 border rounded-lg">
-                    <h3 className="font-medium mb-3">{q.question}</h3>
+                  <div key={q.id} className="mb-6 p-4 border border-slate-600 rounded-lg bg-slate-700">
+                    <h3 className="font-bold mb-3 text-slate-100">{q.question}</h3>
                     
                     <div className="flex items-center space-x-2 mb-3">
                       <textarea
@@ -417,13 +420,13 @@ export default function Dashboard() {
                           setStandupQuestions(newQuestions);
                         }}
                         placeholder="Type your answer or use voice input..."
-                        className="flex-1 p-3 border rounded-lg resize-none"
+                        className="flex-1 p-3 border border-slate-600 rounded-lg resize-none bg-slate-800 text-slate-200 placeholder-slate-400 focus:border-violet-400 focus:outline-none"
                         rows={3}
                       />
                       <button
                         onClick={() => startVoiceRecognition(index)}
-                        className={`p-3 rounded-lg ${
-                          isListening ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'
+                        className={`p-3 rounded-lg font-bold transition-colors ${
+                          isListening ? 'bg-red-600 text-white border border-red-400' : 'bg-violet-400 text-white border border-violet-300'
                         } hover:opacity-80`}
                       >
                         {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
@@ -433,7 +436,7 @@ export default function Dashboard() {
                     {q.answer.trim() && !q.isAnalyzed && (
                       <button
                         onClick={() => analyzeAnswer(index)}
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+                        className="bg-violet-400 text-white px-4 py-2 rounded-lg hover:bg-violet-300 font-bold border border-violet-300 transition-colors"
                       >
                         Analyze Answer
                       </button>

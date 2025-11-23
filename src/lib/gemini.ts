@@ -1,8 +1,8 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 
 export class GeminiService {
   private genAI: GoogleGenerativeAI | null = null;
-  private model: any = null;
+  private model: GenerativeModel | null = null;
 
   initialize(apiKey: string) {
     this.genAI = new GoogleGenerativeAI(apiKey);
@@ -64,7 +64,7 @@ export class GeminiService {
     }
   }
 
-  async generateChecklist(standupData: any): Promise<{
+  async generateChecklist(standupData: StandupData): Promise<{
     items: Array<{
       title: string;
       description: string;
@@ -115,7 +115,7 @@ export class GeminiService {
     }
   }
 
-  async generateTaskTimeEstimate(taskDescription: string, userProfile?: any): Promise<number> {
+  async generateTaskTimeEstimate(taskDescription: string, userProfile?: UserProfile): Promise<number> {
     const prompt = `
     Estimate time needed for this task: "${taskDescription}"
     
@@ -137,7 +137,7 @@ export class GeminiService {
   async generateBlockerAdvice(
     task: string, 
     blocker: string, 
-    context?: any
+    context?: Record<string, unknown>
   ): Promise<{
     advice: string;
     alternatives: string[];
@@ -174,8 +174,8 @@ export class GeminiService {
   }
 
   async generateStakeholderReport(
-    tasks: any[], 
-    stakeholder: any, 
+    tasks: Array<{ title: string; description?: string; status?: string }>,
+    stakeholder: { name: string; role: string; email: string },
     intent: 'candid' | 'diplomatic' | 'formal' = 'candid'
   ): Promise<string> {
     const prompt = `
@@ -219,9 +219,9 @@ export class GeminiService {
   }
 
   async generatePersonalInsights(
-    progressData: any[], 
-    userProfile: any, 
-    goals: any[]
+    progressData: Array<{ date: string; completed: number; total: number }>,
+    userProfile: UserProfile,
+    goals: Array<{ title: string; description: string; target_date: string }>
   ): Promise<{
     adherenceAnalysis: string;
     alignmentInsights: string;

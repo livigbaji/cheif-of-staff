@@ -24,16 +24,23 @@ async function getCurrentUser() {
 
 export async function POST(request: NextRequest) {
   try {
-    const currentUser = await getCurrentUser(request);
+    const currentUser = await getCurrentUser();
     const { apiKey } = await request.json();
     
     if (!apiKey) {
       return NextResponse.json({ error: 'API key is required' }, { status: 400 });
     }
 
-    // Test the API key
-    geminiService.initialize(apiKey);
-    await geminiService.generateResponse('Hello, this is a test.');
+    // Initialize and test the API key (this now includes model testing)
+    try {
+      await geminiService.initialize(apiKey);
+    } catch (error) {
+      console.error('API key validation failed:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
+      return NextResponse.json({ 
+        error: `API key validation failed: ${errorMessage}` 
+      }, { status: 400 });
+    }
 
     // For authenticated users, store the API key in database
     if (!currentUser.isGuest) {

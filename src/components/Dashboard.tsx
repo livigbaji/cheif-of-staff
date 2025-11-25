@@ -1190,7 +1190,7 @@ function SettingsView() {
 
   const testGeminiConnection = async () => {
     if (!geminiApiKey || geminiApiKey.includes('•')) {
-      alert('Please enter a new API key to test');
+      showModal('Input Required', 'Please enter a new API key to test', 'warning');
       return;
     }
 
@@ -1247,14 +1247,14 @@ function SettingsView() {
     try {
       const response = await fetch('/api/user/reset', { method: 'POST' });
       if (response.ok) {
-        alert('All data has been reset successfully');
+        showModal('Success', 'All data has been reset successfully', 'success');
         window.location.reload();
       } else {
-        alert('Failed to reset data');
+        showModal('Error', 'Failed to reset data', 'error');
       }
     } catch (error) {
       console.error('Error resetting data:', error);
-      alert('Error resetting data');
+      showModal('Error', 'Error resetting data', 'error');
     }
   };
 
@@ -1703,9 +1703,14 @@ export default function Dashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
   
-  // App works without authentication, but Google login unlocks integrations
+  // App works without authentication, but Google/Slack login unlocks enhanced integrations
   const hasGoogleIntegration = !!session?.user;
   const currentUser = session?.user || { id: 'guest', name: 'Guest User', email: 'guest@localhost' };
+  
+  // Track connection status for both providers
+  const [hasGoogleConnection, setHasGoogleConnection] = useState(false);
+  const [hasSlackConnection, setHasSlackConnection] = useState(false);
+  const isGuestMode = !session?.user;
   
   const [currentView, setCurrentView] = useState(() => {
     // Get initial view from URL or default to standup
@@ -1721,12 +1726,41 @@ export default function Dashboard() {
   const [geminiConfigured, setGeminiConfigured] = useState(false);
   const [apiKey, setApiKey] = useState('');
   const [isListening, setIsListening] = useState(false);
-  const [isGuestMode, setIsGuestMode] = useState(!hasGoogleIntegration);
   const [standupQuestions, setStandupQuestions] = useState<StandupQuestionWithAnalysis[]>([]);
   const [checklist, setChecklist] = useState<ChecklistItem[]>([]);
   const [mode, setMode] = useState<'cadence' | 'waterfall'>('cadence');
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [selectedTask, setSelectedTask] = useState<ChecklistItem | null>(null);
+
+  // Modal state
+  const [modal, setModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    type: 'info' | 'success' | 'error' | 'warning';
+  }>({ isOpen: false, title: '', message: '', type: 'info' });
+
+  // Modal helper function
+  const showModal = (title: string, message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info') => {
+    setModal({ isOpen: true, title, message, type });
+  };
+
+  const closeModal = () => {
+    setModal({ isOpen: false, title: '', message: '', type: 'info' });
+  };
+
+  // Draft persistence for standup form
+  const saveDraft = useCallback((questionIndex: number, answer: string) => {
+    const draftKey = `standup-draft-${questionIndex}`;
+    console.log(`Saving draft: ${draftKey} = "${answer}"`);
+    localStorage.setItem(draftKey, answer);
+  }, []);
+
+  const clearDrafts = useCallback(() => {
+    for (let i = 0; i < 8; i++) {
+      localStorage.removeItem(`standup-draft-${i}`);
+    }
+  }, []);
 
   // Analytics state
   const [analyticsData, setAnalyticsData] = useState({
@@ -1755,22 +1789,48 @@ export default function Dashboard() {
     }
   }, [hasGoogleIntegration]);
 
+  // Check which services are connected
+  const checkConnectionStatus = useCallback(async () => {
+    if (!session?.user?.email) {
+      setHasGoogleConnection(false);
+      setHasSlackConnection(false);
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/user/connections');
+      if (response.ok) {
+        const data = await response.json();
+        setHasGoogleConnection(!!data.google_id);
+        setHasSlackConnection(!!data.slack_id);
+      }
+    } catch (error) {
+      console.error('Error checking connection status:', error);
+    }
+  }, [session?.user?.email]);
+
   const loadStandupQuestions = useCallback(async () => {
     try {
       const response = await fetch('/api/standup/questions');
       const data = await response.json();
+      
       if (data.success && data.questions.length > 0) {
         // Convert simple questions into full question objects for the standup interface
-        const questionsWithAnalysis = data.questions.map((q: StandupQuestion, index: number) => ({
-          id: `q${index + 1}`,
-          question: q.text,
-          answer: '',
-          isAnalyzed: false
-        }));
+        const questionsWithAnalysis = data.questions.map((q: StandupQuestion, index: number) => {
+          const draftKey = `standup-draft-${index}`;
+          const savedDraft = localStorage.getItem(draftKey);
+          console.log(`Question ${index}: Loading draft "${savedDraft}"`);
+          return {
+            id: `q${index + 1}`,
+            question: q.text,
+            answer: savedDraft || '',
+            isAnalyzed: false
+          };
+        });
         setStandupQuestions(questionsWithAnalysis);
       } else {
-        // Use default questions if none found
-        setStandupQuestions([
+        // Use default questions with drafts if none found
+        const defaultQuestions = [
           { id: 'q1', question: 'What did you do yesterday?', answer: '', isAnalyzed: false },
           { id: 'q2', question: 'What were you not able to do yesterday?', answer: '', isAnalyzed: false },
           { id: 'q3', question: 'Who do you need to do it?', answer: '', isAnalyzed: false },
@@ -1779,12 +1839,24 @@ export default function Dashboard() {
           { id: 'q6', question: 'What are you doing today?', answer: '', isAnalyzed: false },
           { id: 'q7', question: 'What could stop you from doing it?', answer: '', isAnalyzed: false },
           { id: 'q8', question: 'What do you need to understand going into the day?', answer: '', isAnalyzed: false }
-        ]);
+        ];
+        
+        // Load drafts for default questions
+        const questionsWithDrafts = defaultQuestions.map((q, index) => {
+          const draftKey = `standup-draft-${index}`;
+          const savedDraft = localStorage.getItem(draftKey);
+          console.log(`Default question ${index}: Loading draft "${savedDraft}"`);
+          return {
+            ...q,
+            answer: savedDraft || ''
+          };
+        });
+        setStandupQuestions(questionsWithDrafts);
       }
     } catch (error) {
       console.error('Error loading standup questions:', error);
-      // If loading fails, use default questions
-      setStandupQuestions([
+      // If loading fails, use default questions with drafts
+      const defaultQuestions = [
         { id: 'q1', question: 'What did you do yesterday?', answer: '', isAnalyzed: false },
         { id: 'q2', question: 'What were you not able to do yesterday?', answer: '', isAnalyzed: false },
         { id: 'q3', question: 'Who do you need to do it?', answer: '', isAnalyzed: false },
@@ -1793,7 +1865,17 @@ export default function Dashboard() {
         { id: 'q6', question: 'What are you doing today?', answer: '', isAnalyzed: false },
         { id: 'q7', question: 'What could stop you from doing it?', answer: '', isAnalyzed: false },
         { id: 'q8', question: 'What do you need to understand going into the day?', answer: '', isAnalyzed: false }
-      ]);
+      ];
+      
+      const questionsWithDrafts = defaultQuestions.map((q, index) => {
+        const draftKey = `standup-draft-${index}`;
+        const savedDraft = localStorage.getItem(draftKey);
+        return {
+          ...q,
+          answer: savedDraft || ''
+        };
+      });
+      setStandupQuestions(questionsWithDrafts);
     }
   }, []);
 
@@ -1875,29 +1957,23 @@ export default function Dashboard() {
   }, [isGuestMode]);
 
   useEffect(() => {
-    // Always load standup questions first, regardless of session status
-    setTimeout(() => {
-      loadStandupQuestions();
-    }, 0);
+    // Load standup questions only once on mount
+    loadStandupQuestions();
     
     if (session) {
-      // Use setTimeout to avoid synchronous setState in effect
-      setTimeout(() => {
-        checkGeminiConfiguration();
-      }, 0);
+      checkGeminiConfiguration();
+      checkConnectionStatus();
     }
     
     // Load analytics data
-    setTimeout(() => {
-      loadAnalyticsData();
-    }, 0);
-  }, [loadStandupQuestions, session, checkGeminiConfiguration, loadAnalyticsData]);
+    loadAnalyticsData();
+  }, [loadStandupQuestions, session, checkGeminiConfiguration, checkConnectionStatus, loadAnalyticsData]);
 
   // Sync URL with current view
   useEffect(() => {
     const view = searchParams.get('view');
     if (view && ['standup', 'checklist', 'goals', 'people', 'analytics', 'settings'].includes(view)) {
-      setTimeout(() => setCurrentView(view), 0);
+      setCurrentView(view);
     }
   }, [searchParams]);
 
@@ -1930,9 +2006,9 @@ export default function Dashboard() {
       if (response.ok) {
         setGeminiConfigured(true);
         setApiKey('');
-        alert('Gemini API configured successfully!');
+        showModal('Success', 'Gemini API configured successfully!', 'success');
       } else {
-        alert('Failed to configure Gemini API. Please check your key.');
+        showModal('Error', 'Failed to configure Gemini API. Please check your key.', 'error');
       }
     } catch (error) {
       console.error('Error configuring Gemini:', error);
@@ -1941,7 +2017,7 @@ export default function Dashboard() {
 
   const startVoiceRecognition = (questionIndex: number) => {
     if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      alert('Speech recognition not supported in this browser');
+      showModal('Not Supported', 'Speech recognition not supported in this browser', 'warning');
       return;
     }
 
@@ -1991,7 +2067,7 @@ export default function Dashboard() {
     if (isGuestMode || !geminiConfigured) {
       const enteredApiKey = prompt('Please enter your Gemini API key:');
       if (!enteredApiKey) {
-        alert('Gemini API key is required for analysis');
+        showModal('Configuration Required', 'Gemini API key is required for analysis', 'warning');
         return;
       }
       requestApiKey = enteredApiKey;
@@ -2016,48 +2092,75 @@ export default function Dashboard() {
         newQuestions[questionIndex].isAnalyzed = true;
         setStandupQuestions(newQuestions);
       } else {
-        alert(analysis.message || analysis.error || 'Failed to analyze response');
+        showModal('Analysis Error', analysis.message || analysis.error || 'Failed to analyze response', 'error');
       }
     } catch (error) {
       console.error('Error analyzing answer:', error);
-      alert('Failed to analyze response. Please check your connection and try again.');
+      showModal('Analysis Error', 'Failed to analyze response. Please check your connection and try again.', 'error');
     }
   };
 
   const generateChecklist = async () => {
     try {
+      // Validate all questions have answers
+      if (!standupQuestions.every(q => q.answer.trim())) {
+        showModal('Incomplete Form', 'Please answer all questions before generating checklist.', 'warning');
+        return;
+      }
+
       // First create standup session
       const standupResponse = await fetch('/api/standup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          whatDidYesterday: standupQuestions[0].answer,
-          whatNotAbleYesterday: standupQuestions[1].answer,
-          whoNeedToDo: standupQuestions[2].answer,
-          whatNeedToDo: standupQuestions[3].answer,
-          whyNotAble: standupQuestions[4].answer,
-          whatDoingToday: standupQuestions[5].answer,
-          whatCouldStop: standupQuestions[6].answer,
-          whatNeedUnderstand: standupQuestions[7].answer,
+          whatDidYesterday: standupQuestions[0]?.answer || '',
+          whatNotAbleYesterday: standupQuestions[1]?.answer || '',
+          whoNeedToDo: standupQuestions[2]?.answer || '',
+          whatNeedToDo: standupQuestions[3]?.answer || '',
+          whyNotAble: standupQuestions[4]?.answer || '',
+          whatDoingToday: standupQuestions[5]?.answer || '',
+          whatCouldStop: standupQuestions[6]?.answer || '',
+          whatNeedUnderstand: standupQuestions[7]?.answer || '',
           mode
         })
       });
 
+      if (!standupResponse.ok) {
+        const errorData = await standupResponse.json();
+        throw new Error(errorData.error || 'Failed to create standup session');
+      }
+
       const standupData = await standupResponse.json();
 
-      // Then generate checklist
+      if (!standupData.sessionId) {
+        throw new Error('No session ID returned from standup creation');
+      }
+
+      // Then generate checklist  
       const checklistResponse = await fetch('/api/checklist/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sessionId: standupData.sessionId })
       });
 
+      if (!checklistResponse.ok) {
+        const errorData = await checklistResponse.json();
+        throw new Error(errorData.error || 'Failed to generate checklist');
+      }
+
       const checklistData = await checklistResponse.json();
-      setChecklist(checklistData.items);
-      setCurrentView('checklist');
-      router.push('/?view=checklist', { scroll: false });
+      
+      if (checklistData.items) {
+        setChecklist(checklistData.items);
+        clearDrafts(); // Clear drafts after successful submission
+        setCurrentView('checklist');
+        router.push('/?view=checklist', { scroll: false });
+      } else {
+        throw new Error('No checklist items received');
+      }
     } catch (error) {
       console.error('Error generating checklist:', error);
+      showModal('Generation Error', `Error: ${error.message || 'Failed to generate checklist. Please try again.'}`, 'error');
     }
   };
 
@@ -2109,22 +2212,47 @@ export default function Dashboard() {
           <div className="flex justify-between items-center h-16">
             <h1 className="text-xl font-bold text-violet-300">Chief of Staff</h1>
             <div className="flex items-center space-x-4">
-              <span className="text-sm text-slate-300">{currentUser.name}</span>
-              {hasGoogleIntegration ? (
-                <button
-                  onClick={() => signOut()}
-                  className="text-sm text-slate-300 hover:text-violet-300 transition-colors"
-                >
-                  Sign out
-                </button>
-              ) : (
-                <button
-                  onClick={() => signIn('google')}
-                  className="text-sm bg-violet-400 text-white px-3 py-1 rounded hover:bg-violet-300 font-bold transition-colors"
-                >
-                  Connect Google
-                </button>
-              )}
+              <span className="text-sm text-slate-300">
+                {currentUser.name}
+                {isGuestMode && <span className="text-xs text-slate-400 ml-1">(Guest Mode)</span>}
+              </span>
+              <div className="flex flex-col items-end space-y-1">
+                {(hasGoogleConnection || hasSlackConnection) && (
+                  <div className="flex items-center space-x-2 text-xs">
+                    {hasGoogleConnection && <span className="text-green-400">Google ✓</span>}
+                    {hasSlackConnection && <span className="text-green-400">Slack ✓</span>}
+                  </div>
+                )}
+                <div className="flex items-center space-x-2">
+                  {session?.user && (
+                    <button
+                      onClick={() => signOut()}
+                      className="text-sm text-slate-300 hover:text-violet-300 transition-colors"
+                    >
+                      Sign out
+                    </button>
+                  )}
+                  <div className="text-xs text-slate-400">Optional integrations:</div>
+                  <div className="flex space-x-1">
+                    {!hasGoogleConnection && (
+                      <button
+                        onClick={() => signIn('google')}
+                        className="text-xs bg-violet-400 text-white px-2 py-1 rounded hover:bg-violet-300 font-bold transition-colors"
+                      >
+                        Google
+                      </button>
+                    )}
+                    {!hasSlackConnection && (
+                      <button
+                        onClick={() => signIn('slack')}
+                        className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-500 font-bold transition-colors"
+                      >
+                        Slack
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -2152,13 +2280,15 @@ export default function Dashboard() {
                 <div className="space-y-1 text-xs">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-300">Google APIs</span>
-                    <span className={`px-2 py-1 rounded font-bold ${hasGoogleIntegration ? 'bg-violet-900 text-violet-300 border border-violet-500' : 'bg-slate-600 text-slate-400'}`}>
-                      {hasGoogleIntegration ? 'Connected' : 'Available'}
+                    <span className={`px-2 py-1 rounded font-bold ${hasGoogleConnection ? 'bg-violet-900 text-violet-300 border border-violet-500' : 'bg-slate-600 text-slate-400'}`}>
+                      {hasGoogleConnection ? 'Connected' : 'Available'}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-300">Slack</span>
-                    <span className="px-2 py-1 rounded bg-slate-600 text-slate-400 font-bold">Available</span>
+                    <span className={`px-2 py-1 rounded font-bold ${hasSlackConnection ? 'bg-green-900 text-green-300 border border-green-500' : 'bg-slate-600 text-slate-400'}`}>
+                      {hasSlackConnection ? 'Connected' : 'Available'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2244,6 +2374,14 @@ export default function Dashboard() {
         <main className="flex-1 p-8" style={{ backgroundColor: '#141414' }}>
           {currentView === 'standup' && (
             <div className="max-w-4xl mx-auto">
+              {isGuestMode && (
+                <div className="bg-blue-900/20 border border-blue-700 rounded-lg p-4 mb-6">
+                  <div className="text-blue-300 text-sm">
+                    <strong>Guest Mode:</strong> All features work with full data persistence! 
+                    Connect Google or Slack above to unlock external integrations like Google Docs, Sheets, Tasks, Calendar, Gmail, and Slack messaging.
+                  </div>
+                </div>
+              )}
               <div className="bg-slate-800 rounded-lg shadow-lg p-6 border border-slate-700">
                 <h2 className="text-2xl font-bold mb-6 text-violet-300">Daily Standup</h2>
                 
@@ -2281,6 +2419,7 @@ export default function Dashboard() {
                           newQuestions[index].answer = e.target.value;
                           newQuestions[index].isAnalyzed = false;
                           setStandupQuestions(newQuestions);
+                          saveDraft(index, e.target.value);
                         }}
                         placeholder="Type your answer or use voice input..."
                         className="flex-1 p-3 border border-slate-600 rounded-lg resize-none bg-slate-800 text-slate-200 placeholder-slate-400 focus:border-violet-400 focus:outline-none"
@@ -2876,6 +3015,50 @@ export default function Dashboard() {
           {currentView === 'settings' && <SettingsView />}
         </main>
       </div>
+      
+      {/* Modal */}
+      {modal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-slate-800 rounded-lg p-6 max-w-md w-full mx-4 border border-slate-700">
+            <div className="flex items-start space-x-3">
+              <div className="flex-shrink-0">
+                {modal.type === 'success' && (
+                  <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm">✓</span>
+                  </div>
+                )}
+                {modal.type === 'error' && (
+                  <div className="w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm">✕</span>
+                  </div>
+                )}
+                {modal.type === 'warning' && (
+                  <div className="w-6 h-6 bg-yellow-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm">⚠</span>
+                  </div>
+                )}
+                {modal.type === 'info' && (
+                  <div className="w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-sm">i</span>
+                  </div>
+                )}
+              </div>
+              <div className="flex-1">
+                <h3 className="text-lg font-bold text-slate-200 mb-2">{modal.title}</h3>
+                <p className="text-slate-300 text-sm">{modal.message}</p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end">
+              <button
+                onClick={closeModal}
+                className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors font-medium"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Universal Floating Chat */}
       <FloatingChat 

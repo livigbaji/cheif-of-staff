@@ -16,6 +16,7 @@ const initializeDatabase = () => {
       email TEXT UNIQUE NOT NULL,
       name TEXT NOT NULL,
       google_id TEXT UNIQUE,
+      slack_id TEXT UNIQUE,
       gemini_api_key TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -208,6 +209,13 @@ const initializeDatabase = () => {
 
 // Initialize database on import
 initializeDatabase();
+
+// Add slack_id column if it doesn't exist (migration for existing databases)
+try {
+  db.exec(`ALTER TABLE users ADD COLUMN slack_id TEXT UNIQUE`);
+} catch {
+  // Column already exists or other error - ignore
+}
 
 // Add stakeholders column if it doesn't exist (for existing databases)
 try {

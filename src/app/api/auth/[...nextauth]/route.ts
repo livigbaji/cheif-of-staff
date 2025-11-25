@@ -1,5 +1,6 @@
 import NextAuth from 'next-auth';
 import GoogleProvider from 'next-auth/providers/google';
+import SlackProvider from 'next-auth/providers/slack';
 import { NextAuthOptions } from 'next-auth';
 import db from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
@@ -14,22 +15,53 @@ export const authOptions: NextAuthOptions = {
           scope: 'openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/tasks'
         }
       }
+    }),
+    SlackProvider({
+      clientId: process.env.SLACK_CLIENT_ID!,
+      clientSecret: process.env.SLACK_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          scope: 'openid email profile'
+        }
+      }
     })
   ],
   callbacks: {
     async signIn({ user, account }) {
-      if (account?.provider === 'google') {
+      if (account?.provider === 'google' || account?.provider === 'slack') {
         try {
-          // Check if user exists
-          const existingUser = db.prepare('SELECT * FROM users WHERE google_id = ?').get(user.id);
+          const userIdValue = account.provider === 'slack' ? account.providerAccountId : user.id;
           
-          if (!existingUser) {
+          // First, try to find existing user by email for account linking
+          const existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(user.email);
+          
+          let userId: string;
+          
+          if (existingUser) {
+            // User exists, link the new provider
+            userId = existingUser.id;
+            
+            if (account.provider === 'google' && !existingUser.google_id) {
+              // Link Google account
+              db.prepare('UPDATE users SET google_id = ? WHERE id = ?').run(user.id, userId);
+            } else if (account.provider === 'slack' && !existingUser.slack_id) {
+              // Link Slack account  
+              db.prepare('UPDATE users SET slack_id = ? WHERE id = ?').run(userIdValue, userId);
+            }
+          } else {
             // Create new user
-            const userId = uuidv4();
-            db.prepare(`
-              INSERT INTO users (id, email, name, google_id)
-              VALUES (?, ?, ?, ?)
-            `).run(userId, user.email, user.name, user.id);
+            userId = uuidv4();
+            if (account.provider === 'google') {
+              db.prepare(`
+                INSERT INTO users (id, email, name, google_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+              `).run(userId, user.email, user.name, user.id, new Date().toISOString(), new Date().toISOString());
+            } else if (account.provider === 'slack') {
+              db.prepare(`
+                INSERT INTO users (id, email, name, slack_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+              `).run(userId, user.email, user.name, userIdValue, new Date().toISOString(), new Date().toISOString());
+            }
 
             // Create default user profile
             db.prepare(`
@@ -38,18 +70,17 @@ export const authOptions: NextAuthOptions = {
             `).run(uuidv4(), userId, '', '');
           }
 
-          // Store tokens for Google API access
+          // Store tokens for API access
           if (account.access_token) {
-            const userId = existingUser?.id || db.prepare('SELECT id FROM users WHERE google_id = ?').get(user.id)?.id;
-            
             // Upsert integration settings
             db.prepare(`
               INSERT OR REPLACE INTO integration_settings 
               (id, user_id, service_name, access_token, refresh_token, settings_json)
-              VALUES (?, ?, 'google', ?, ?, ?)
+              VALUES (?, ?, ?, ?, ?, ?)
             `).run(
               uuidv4(), 
               userId, 
+              account.provider,
               account.access_token, 
               account.refresh_token || '',
               JSON.stringify({ scope: account.scope })

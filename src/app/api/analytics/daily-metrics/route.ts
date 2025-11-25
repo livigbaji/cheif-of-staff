@@ -4,18 +4,42 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import db from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 
-export async function GET(request: NextRequest) {
+// Helper function to get current user (authenticated or guest)
+async function getCurrentUser() {
   const session = await getServerSession(authOptions);
   
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (session?.user?.id) {
+    return {
+      id: session.user.id,
+      isGuest: false
+    };
   }
+  
+  // For guest users, create or retrieve a persistent guest user ID
+  const guestId = 'guest-user';
+  
+  // Ensure guest user exists in database
+  const existingGuest = db.prepare('SELECT * FROM users WHERE id = ?').get(guestId);
+  if (!existingGuest) {
+    db.prepare(`
+      INSERT INTO users (id, email, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(guestId, 'guest@localhost', 'Guest User', new Date().toISOString(), new Date().toISOString());
+  }
+  
+  return {
+    id: guestId,
+    isGuest: true
+  };
+}
 
-  const { searchParams } = new URL(request.url);
-  const days = parseInt(searchParams.get('days') || '7');
-  const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0];
-
+export async function GET(request: NextRequest) {
   try {
+    const currentUser = await getCurrentUser();
+    const { searchParams } = new URL(request.url);
+    const days = parseInt(searchParams.get('days') || '7');
+    const endDate = searchParams.get('endDate') || new Date().toISOString().split('T')[0];
+
     // Get daily metrics for the specified period
     const metrics = db.prepare(`
       SELECT * FROM daily_metrics 
@@ -23,14 +47,14 @@ export async function GET(request: NextRequest) {
       AND date >= date(?, '-${days-1} days') 
       AND date <= ?
       ORDER BY date DESC
-    `).all(session.user.id, endDate, endDate);
+    `).all(currentUser.id, endDate, endDate);
 
     // Get current day metrics (today)
     const today = new Date().toISOString().split('T')[0];
     const todayMetrics = db.prepare(`
       SELECT * FROM daily_metrics 
       WHERE user_id = ? AND date = ?
-    `).get(session.user.id, today);
+    `).get(currentUser.id, today);
 
     return NextResponse.json({
       success: true,
@@ -50,13 +74,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await getServerSession(authOptions);
-  
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   try {
+    const currentUser = await getCurrentUser();
     const body = await request.json();
     const {
       date = new Date().toISOString().split('T')[0],
@@ -76,7 +95,7 @@ export async function POST(request: NextRequest) {
     // Upsert daily metrics
     const existingMetric = db.prepare(`
       SELECT id FROM daily_metrics WHERE user_id = ? AND date = ?
-    `).get(session.user.id, date);
+    `).get(currentUser.id, date);
 
     if (existingMetric) {
       // Update existing record
@@ -111,7 +130,7 @@ export async function POST(request: NextRequest) {
           blockers_resolved, distractions_count, focus_time_minutes, total_work_minutes
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
-        id, session.user.id, date, focus_score || 0, completion_rate || 0,
+        id, currentUser.id, date, focus_score || 0, completion_rate || 0,
         proactiveness_score || 0, alignment_score || 0, tasks_planned || 0,
         tasks_completed || 0, blockers_encountered || 0, blockers_resolved || 0,
         distractions_count || 0, focus_time_minutes || 0, total_work_minutes || 0

@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Initialize Gemini with API key
-    geminiService.initialize(geminiApiKey);
+    await geminiService.initialize(geminiApiKey);
 
     // Analyze the response
     const analysis = await geminiService.analyzeStandupResponse(question, answer);

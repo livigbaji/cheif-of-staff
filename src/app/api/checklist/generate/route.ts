@@ -5,39 +5,83 @@ import { geminiService } from '@/lib/gemini';
 import db from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 
-export async function POST(request: NextRequest) {
+// Helper function to get current user (authenticated or guest)
+async function getCurrentUser() {
   const session = await getServerSession(authOptions);
   
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (session?.user?.id) {
+    return {
+      id: session.user.id,
+      isGuest: false,
+      session
+    };
   }
+  
+  // For guest users, create or retrieve a persistent guest user ID
+  const guestId = 'guest-user';
+  
+  // Ensure guest user exists in database
+  const existingGuest = db.prepare('SELECT * FROM users WHERE id = ?').get(guestId);
+  if (!existingGuest) {
+    db.prepare(`
+      INSERT INTO users (id, email, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(guestId, 'guest@localhost', 'Guest User', new Date().toISOString(), new Date().toISOString());
+  }
+  
+  return {
+    id: guestId,
+    isGuest: true,
+    session: null
+  };
+}
 
+export async function POST(request: NextRequest) {
   try {
-    const { sessionId } = await request.json();
+    const currentUser = await getCurrentUser();
+    const { sessionId, standupData } = await request.json();
 
-    // Get standup session data
-    const standupSession = db.prepare(`
-      SELECT * FROM standup_sessions WHERE id = ? AND user_id = ?
-    `).get(sessionId, session.user.id);
-
-    if (!standupSession) {
-      return NextResponse.json({ error: 'Standup session not found' }, { status: 404 });
+    let standupSession = null;
+    
+    // For authenticated users, try to get standup session from database
+    if (!currentUser.isGuest && sessionId) {
+      standupSession = db.prepare(`
+        SELECT * FROM standup_sessions WHERE id = ? AND user_id = ?
+      `).get(sessionId, currentUser.id);
+    }
+    
+    // If no session found in DB, use provided standup data (for guest mode or new sessions)
+    if (!standupSession && standupData) {
+      standupSession = standupData;
     }
 
-    // Get user's Gemini API key
-    const user = db.prepare('SELECT gemini_api_key FROM users WHERE id = ?').get(session.user.id) as { gemini_api_key: string | null };
+    if (!standupSession) {
+      return NextResponse.json({ error: 'No standup data provided' }, { status: 400 });
+    }
+
+    // Get user's Gemini API key (for authenticated users) or use default
+    let userApiKey = process.env.GEMINI_API_KEY || '';
+    if (!currentUser.isGuest) {
+      const user = db.prepare('SELECT gemini_api_key FROM users WHERE id = ?').get(currentUser.id) as { gemini_api_key: string | null };
+      if (user?.gemini_api_key) {
+        userApiKey = user.gemini_api_key;
+      }
+    }
     
-    if (!user?.gemini_api_key) {
+    if (!userApiKey) {
       return NextResponse.json({ error: 'Gemini API key not configured' }, { status: 400 });
     }
 
-    // Initialize Gemini with user's API key
-    geminiService.initialize(user.gemini_api_key);
+    // Initialize Gemini with API key
+    await geminiService.initialize(userApiKey);
 
-    // Get user goals for alignment
-    const goals = db.prepare(`
-      SELECT * FROM goals WHERE user_id = ? AND status = 'active'
-    `).all(session.user.id);
+    // Get user goals for alignment (authenticated users only)
+    let goals = [];
+    if (!currentUser.isGuest) {
+      goals = db.prepare(`
+        SELECT * FROM goals WHERE user_id = ? AND status = 'active'
+      `).all(currentUser.id);
+    }
 
     // Generate checklist
     const checklistData = await geminiService.generateChecklist({
@@ -52,14 +96,15 @@ export async function POST(request: NextRequest) {
       goals
     });
 
-    // Store checklist items in database
+    // Store checklist items in database (for all users including guests)
     const checklistItems = [];
-    for (const item of checklistData.items) {
+    for (let index = 0; index < checklistData.items.length; index++) {
+      const item = checklistData.items[index];
       const itemId = uuidv4();
       
       // Find matching goal if any
       const matchingGoal = goals.find(goal => 
-        item.goalAlignment.some(alignment => 
+        item.goalAlignment && item.goalAlignment.some(alignment => 
           goal.title.toLowerCase().includes(alignment.toLowerCase()) ||
           goal.description?.toLowerCase().includes(alignment.toLowerCase())
         )
@@ -73,7 +118,7 @@ export async function POST(request: NextRequest) {
       `).run(
         itemId,
         sessionId,
-        session.user.id,
+        currentUser.id,
         item.title,
         item.description,
         item.estimatedTimeMinutes,

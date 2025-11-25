@@ -4,20 +4,44 @@ import { authOptions } from '@/app/api/auth/[...nextauth]/route';
 import db from '@/lib/db';
 import { v4 as uuidv4 } from 'uuid';
 
-export async function GET(request: NextRequest) {
+// Helper function to get current user (authenticated or guest)
+async function getCurrentUser() {
   const session = await getServerSession(authOptions);
   
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (session?.user?.id) {
+    return {
+      id: session.user.id,
+      isGuest: false
+    };
   }
+  
+  // For guest users, create or retrieve a persistent guest user ID
+  const guestId = 'guest-user';
+  
+  // Ensure guest user exists in database
+  const existingGuest = db.prepare('SELECT * FROM users WHERE id = ?').get(guestId);
+  if (!existingGuest) {
+    db.prepare(`
+      INSERT INTO users (id, email, name, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(guestId, 'guest@localhost', 'Guest User', new Date().toISOString(), new Date().toISOString());
+  }
+  
+  return {
+    id: guestId,
+    isGuest: true
+  };
+}
 
+export async function GET(request: NextRequest) {
   try {
+    const currentUser = await getCurrentUser();
     const { searchParams } = new URL(request.url);
     const date = searchParams.get('date') || new Date().toISOString().split('T')[0];
     const sessionId = searchParams.get('sessionId');
 
     let whereClause = 'WHERE user_id = ?';
-    const params: string[] = [session.user.id];
+    const params: string[] = [currentUser.id];
 
     if (sessionId) {
       whereClause += ' AND standup_session_id = ?';
@@ -29,11 +53,11 @@ export async function GET(request: NextRequest) {
         WHERE user_id = ? AND session_date = ?
         ORDER BY created_at DESC
         LIMIT 1
-      `).get(session.user.id, date);
+      `).get(currentUser.id, date);
 
       if (standupSession) {
         whereClause += ' AND standup_session_id = ?';
-        params.push((standupSession as any).id);
+        params.push(standupSession.id as string);
       } else {
         return NextResponse.json({ items: [] });
       }
@@ -55,13 +79,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const session = await getServerSession(authOptions);
-  
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-
   try {
+    const currentUser = await getCurrentUser();
     const { itemId, status, notes, progressPercentage, timeSpent } = await request.json();
 
     // Update checklist item
@@ -69,7 +88,7 @@ export async function PUT(request: NextRequest) {
       UPDATE checklist_items 
       SET status = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ? AND user_id = ?
-    `).run(status, itemId, session.user.id);
+    `).run(status, itemId, currentUser.id);
 
     // Create check-in record
     db.prepare(`
@@ -80,7 +99,7 @@ export async function PUT(request: NextRequest) {
     `).run(
       uuidv4(),
       itemId,
-      session.user.id,
+      currentUser.id,
       status,
       notes || null,
       timeSpent || null,

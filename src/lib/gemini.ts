@@ -3,10 +3,73 @@ import { GoogleGenerativeAI, GenerativeModel } from '@google/generative-ai';
 export class GeminiService {
   private genAI: GoogleGenerativeAI | null = null;
   private model: GenerativeModel | null = null;
+  private apiKey: string | null = null;
 
-  initialize(apiKey: string) {
+  async initialize(apiKey: string) {
+    this.apiKey = apiKey;
     this.genAI = new GoogleGenerativeAI(apiKey);
-    this.model = this.genAI.getGenerativeModel({ model: 'gemini-pro' });
+    
+    try {
+      // First, get the list of available models using ListModels API as recommended
+      console.log('Calling ListModels API to discover available models...');
+      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${this.apiKey}`);
+      
+      if (!response.ok) {
+        throw new Error(`Failed to list models: ${response.status} ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      const models = data.models || [];
+      
+      interface GeminiModel {
+        name: string;
+        supportedGenerationMethods?: string[];
+      }
+      
+      console.log('Available models:', models.map((m: GeminiModel) => m.name));
+      
+      // Filter models that support generateContent
+      const supportedModels = models.filter((model: GeminiModel) => 
+        model.supportedGenerationMethods?.includes('generateContent')
+      );
+      
+      if (supportedModels.length === 0) {
+        throw new Error('No models found that support generateContent. Please check your API key permissions.');
+      }
+      
+      // Try each supported model until one works
+      let lastError = '';
+      for (const modelInfo of supportedModels) {
+        try {
+          // Extract just the model name (e.g., 'gemini-pro' from 'models/gemini-pro')
+          const modelName = modelInfo.name.replace('models/', '');
+          const testModel = this.genAI.getGenerativeModel({ model: modelName });
+          
+          // Test the model with a simple request
+          const testResult = await testModel.generateContent('Test');
+          await testResult.response.text();
+          
+          // If we get here, the model works
+          this.model = testModel;
+          console.log(`Successfully initialized with model: ${modelName}`);
+          return;
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          lastError = `${modelInfo.name}: ${errorMessage}`;
+          console.warn(`Model ${modelInfo.name} failed:`, errorMessage);
+          continue;
+        }
+      }
+      
+      // If we get here, all models failed
+      throw new Error(`Failed to initialize any Gemini model. Last error: ${lastError}. Please verify your API key has access to Gemini models.`);
+      
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('Failed to initialize')) {
+        throw error; // Re-throw our custom error
+      }
+      throw new Error(`Failed to initialize Gemini API: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   async generateResponse(prompt: string): Promise<string> {
@@ -20,7 +83,47 @@ export class GeminiService {
       return response.text();
     } catch (error) {
       console.error('Gemini API Error:', error);
-      throw new Error('Failed to generate response from Gemini');
+      
+      // Handle specific error types
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorObj = error as { status?: number; code?: string };
+      const errorStatus = errorObj.status;
+      
+      if (errorMessage.includes('API_KEY_INVALID') || errorMessage.includes('invalid api key')) {
+        throw new Error('Invalid API key. Please check your Gemini API key.');
+      }
+      
+      if (errorMessage.includes('PERMISSION_DENIED') || errorMessage.includes('permission denied')) {
+        throw new Error('Permission denied. Please verify your API key has access to Gemini models.');
+      }
+      
+      if (errorMessage.includes('QUOTA_EXCEEDED') || errorMessage.includes('quota exceeded')) {
+        throw new Error('API quota exceeded. Please check your usage limits.');
+      }
+      
+      if (errorMessage.includes('RATE_LIMIT_EXCEEDED') || errorMessage.includes('rate limit')) {
+        throw new Error('Rate limit exceeded. Please try again in a moment.');
+      }
+      
+      if (errorStatus === 403) {
+        throw new Error('Access forbidden. Please verify your API key has the required permissions.');
+      }
+      
+      if (errorStatus === 404) {
+        throw new Error('Model not found. Please ensure your API key has access to Gemini models.');
+      }
+      
+      if (errorStatus === 429) {
+        throw new Error('Too many requests. Please wait and try again.');
+      }
+      
+      if (errorStatus && errorStatus >= 500) {
+        throw new Error('Gemini service temporarily unavailable. Please try again later.');
+      }
+      
+      // Generic error with more context
+      const statusCode = errorStatus ? ` (Status: ${errorStatus})` : '';
+      throw new Error(`Failed to generate response from Gemini: ${errorMessage}${statusCode}`);
     }
   }
 

@@ -21,7 +21,7 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.SLACK_CLIENT_SECRET!,
       authorization: {
         params: {
-          scope: 'openid email profile'
+          scope: 'openid email profile channels:read channels:history chat:write im:read im:history im:write users:read users:read.email mpim:read mpim:history groups:read groups:history reactions:read reactions:write files:read team:read'
         }
       }
     })

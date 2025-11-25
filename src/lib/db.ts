@@ -59,6 +59,20 @@ const initializeDatabase = () => {
     )
   `);
 
+  // People table for Slack integration (simpler structure)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS people (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      email TEXT,
+      slack_id TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+  `);
+
   // Goals and objectives
   db.exec(`
     CREATE TABLE IF NOT EXISTS goals (
@@ -212,9 +226,24 @@ initializeDatabase();
 
 // Add slack_id column if it doesn't exist (migration for existing databases)
 try {
-  db.exec(`ALTER TABLE users ADD COLUMN slack_id TEXT UNIQUE`);
-} catch {
-  // Column already exists or other error - ignore
+  // Check if column exists first
+  const result = db.prepare("PRAGMA table_info(users)").all();
+  const hasSlackId = result.some((col: any) => col.name === 'slack_id');
+  
+  if (!hasSlackId) {
+    // Add column without UNIQUE constraint first
+    db.exec(`ALTER TABLE users ADD COLUMN slack_id TEXT`);
+    console.log('Added slack_id column to users table');
+    
+    // Then create a unique index if needed
+    try {
+      db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_slack_id ON users(slack_id) WHERE slack_id IS NOT NULL`);
+    } catch (indexError) {
+      console.warn('Could not create unique index for slack_id:', indexError);
+    }
+  }
+} catch (error) {
+  console.error('Error adding slack_id column:', error);
 }
 
 // Add stakeholders column if it doesn't exist (for existing databases)
@@ -233,6 +262,12 @@ try {
 
 try {
   db.exec(`ALTER TABLE people_profiles ADD COLUMN sentiment_summary TEXT`);
+} catch {
+  // Column already exists or other error - ignore
+}
+
+try {
+  db.exec(`ALTER TABLE people_profiles ADD COLUMN slack_id TEXT`);
 } catch {
   // Column already exists or other error - ignore
 }
@@ -314,6 +349,51 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
+  )
+`);
+
+// Slack webhook event storage tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS slack_messages (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    message_ts TEXT NOT NULL,
+    sender_id TEXT,
+    text TEXT,
+    thread_ts TEXT,
+    message_type TEXT DEFAULT 'channel', -- channel, dm, group
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE(channel_id, message_ts)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS slack_reactions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    message_ts TEXT NOT NULL,
+    reaction TEXT NOT NULL,
+    reactor_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+  )
+`);
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS slack_channels (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    channel_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    is_private BOOLEAN DEFAULT FALSE,
+    creator_id TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    UNIQUE(user_id, channel_id)
   )
 `);
 

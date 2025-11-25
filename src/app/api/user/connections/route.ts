@@ -11,12 +11,26 @@ export async function GET() {
       return NextResponse.json({ google_id: null, slack_id: null });
     }
 
-    // Get user connection status
-    const user = db.prepare(`
-      SELECT google_id, slack_id 
-      FROM users 
-      WHERE email = ?
-    `).get(session.user.email);
+    // Get user connection status - handle missing columns gracefully
+    let user;
+    try {
+      user = db.prepare(`
+        SELECT google_id, slack_id 
+        FROM users 
+        WHERE email = ?
+      `).get(session.user.email);
+    } catch (error: any) {
+      if (error.message?.includes('no such column: slack_id')) {
+        // Fallback for databases without slack_id column
+        user = db.prepare(`
+          SELECT google_id, NULL as slack_id 
+          FROM users 
+          WHERE email = ?
+        `).get(session.user.email);
+      } else {
+        throw error;
+      }
+    }
 
     return NextResponse.json({
       google_id: user?.google_id || null,

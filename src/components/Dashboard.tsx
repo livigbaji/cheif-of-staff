@@ -5,6 +5,7 @@ import { useSession, signIn, signOut } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import FloatingChat from './FloatingChat';
+import MentionTextarea from './MentionTextarea';
 import { Mic, MicOff, Settings, Users, Target, BarChart3, FileText, Plus, Edit2, Trash2, Save, X, Calendar } from 'lucide-react';
 import { StandupQuestion } from '../types/database';
 import {
@@ -2412,16 +2413,16 @@ export default function Dashboard() {
                     <h3 className="font-bold mb-3 text-slate-100">{q.question}</h3>
                     
                     <div className="flex items-center space-x-2 mb-3">
-                      <textarea
+                      <MentionTextarea
                         value={q.answer}
-                        onChange={(e) => {
+                        onChange={(newValue) => {
                           const newQuestions = [...standupQuestions];
-                          newQuestions[index].answer = e.target.value;
+                          newQuestions[index].answer = newValue;
                           newQuestions[index].isAnalyzed = false;
                           setStandupQuestions(newQuestions);
-                          saveDraft(index, e.target.value);
+                          saveDraft(index, newValue);
                         }}
-                        placeholder="Type your answer or use voice input..."
+                        placeholder="Type your answer or use voice input... Use @name to mention people"
                         className="flex-1 p-3 border border-slate-600 rounded-lg resize-none bg-slate-800 text-slate-200 placeholder-slate-400 focus:border-violet-400 focus:outline-none"
                         rows={3}
                       />
